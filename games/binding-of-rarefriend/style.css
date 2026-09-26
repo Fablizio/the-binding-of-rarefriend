@@ -1,0 +1,65 @@
+html, body, #root { margin: 0; height: 100%; background: #070708; overflow: hidden; }
+.bor-game { position: relative; width: 100%; height: 100%; overflow: hidden; background: #070708; color: #f2f2f2;
+  font: clamp(9px, 1.55vw, 15px)/1.35 ui-monospace, Menlo, Consolas, monospace; user-select: none; -webkit-user-select: none; }
+.bor-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; touch-action: none; outline: none; }
+.bor-game button { font: inherit; cursor: pointer; padding: .55em 1em; border: 2px solid #f2f2f2; background: #111; color: #f2f2f2; }
+.bor-game button:disabled { opacity: .5; cursor: default; }
+.bor-game button:focus-visible { outline: 3px solid #ccff00; outline-offset: 2px; }
+.bor-game .bor-primary { background: #ccff00; color: #000; border-color: #ccff00; font-weight: bold; }
+
+.bor-side { position: absolute; left: 1%; top: 14%; display: flex; flex-direction: column; gap: 1.2vh; }
+.bor-side button { width: 5.4vw; min-width: 30px; height: 5.4vw; min-height: 30px; padding: 0; font-weight: bold; opacity: .85; }
+
+.bor-toast { position: absolute; left: 50%; top: 11%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;
+  gap: .2em; padding: .6em 1.2em; background: rgba(0,0,0,.82); border: 2px solid #ccff00; text-align: center; pointer-events: none;
+  max-width: 70%; animation: bor-in .25s ease-out; }
+.bor-toast strong { color: #ccff00; font-size: 1.15em; }
+.bor-boss { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 1.2em;
+  padding: .8em 1.6em; background: rgba(0,0,0,.86); border: 3px solid #e0243f; pointer-events: none; animation: bor-in .3s ease-out; }
+.bor-boss.still, .bor-toast.still { animation: none; }
+.bor-boss div { display: flex; flex-direction: column; }
+.bor-boss small { color: #e0243f; font-weight: bold; letter-spacing: .3em; }
+.bor-boss strong { font-size: 1.8em; }
+.bor-portrait { image-rendering: pixelated; display: block; }
+.bor-boss .bor-portrait { width: 8vw; height: 8vw; }
+
+.bor-screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6em;
+  padding: 3% 5% 10%; text-align: center; background: radial-gradient(ellipse at 50% 40%, rgba(40,40,44,.92), rgba(5,5,6,.97)); overflow: auto; }
+.bor-logo { margin: 0; font-size: 2.6em; line-height: 1.05; letter-spacing: .02em; text-shadow: 3px 3px 0 #000; }
+.bor-logo em { display: block; font-style: normal; color: #ccff00; font-size: 1.3em; }
+.bor-credit { margin: 0; color: #9a9a9a; font-style: italic; letter-spacing: .08em; }
+.bor-title { gap: .7em; }
+.bor-hero { display: flex; align-items: center; gap: 1.2em; padding: .6em 1.2em; border: 2px solid #333; background: #d8d8d0; color: #000; text-align: left; }
+.bor-hero .bor-portrait { width: 9vw; height: 9vw; min-width: 48px; min-height: 48px; }
+.bor-hero div { display: flex; flex-direction: column; gap: .15em; max-width: 30em; }
+.bor-hero strong { font-size: 1.3em; }
+.bor-perk b { color: #000; background: #ccff00; padding: 0 .3em; }
+.bor-floors { display: flex; gap: .6em; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; justify-content: center; }
+.bor-floors li { display: flex; flex-direction: column; padding: .4em .8em; border: 2px solid; border-left-width: 6px; background: rgba(0,0,0,.5); text-align: left; min-width: 9em; }
+.bor-floors small { color: #9a9a9a; }
+.bor-floors span { color: #bdbdbd; font-size: .9em; }
+.bor-actions { display: flex; gap: .6em; flex-wrap: wrap; justify-content: center; }
+.bor-hint, .bor-small { color: #9a9a9a; margin: 0; font-size: .9em; }
+.bor-end h2 { margin: .3em 0 0; font-size: 1em; color: #bdbdbd; }
+.bor-stats { color: #ccff00; font-weight: bold; margin: 0; }
+.bor-gallery { display: flex; flex-wrap: wrap; justify-content: center; gap: .4em; list-style: none; margin: 0; padding: .4em; max-width: 90%; background: #d8d8d0; color: #000; }
+.bor-gallery li { display: flex; flex-direction: column; align-items: center; font-size: .75em; }
+.bor-gallery li.boss small { color: #b3122e; font-weight: bold; }
+.bor-gallery .bor-portrait { width: 3.8vw; height: 3.8vw; min-width: 26px; min-height: 26px; }
+.bor-spinner { width: 2.4em; height: 2.4em; border: 4px solid #333; border-top-color: #ccff00; border-radius: 50%; animation: bor-spin .8s linear infinite; }
+.bor-menu-actions { display: flex; gap: 8px; margin: 12px 0; }
+.rf-frame-menu label { display: block; margin: 10px 0; }
+
+@keyframes bor-in { from { opacity: 0; transform: translate(-50%, -30%); } }
+@keyframes bor-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .bor-toast, .bor-boss { animation: none; } .bor-spinner { animation-duration: 3s; } }
+@media (max-height: 460px) {
+  .bor-logo { font-size: 1.8em; }
+  .bor-logo em { display: inline; font-size: 1em; }
+  .bor-screen { gap: .35em; padding: 2% 4% 12%; justify-content: flex-start; }
+  .bor-hint, .bor-floors span, .bor-floors small { display: none; }
+  .bor-hero { padding: .3em .8em; }
+  .bor-hero .bor-portrait { width: 6.5vw; height: 6.5vw; min-width: 36px; min-height: 36px; }
+  .bor-floors li { min-width: 0; padding: .2em .6em; }
+  .bor-gallery .bor-portrait { min-width: 20px; min-height: 20px; }
+}
