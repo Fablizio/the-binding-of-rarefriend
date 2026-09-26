@@ -7,11 +7,11 @@ import type { Roster } from "../engine/roster";
 import type { FamilyId } from "../engine/themes";
 
 const base = [sampleFriendSprites(7730n)!, sampleFriendSprites(3412n)!];
-const fake = (id: number, family: number): GenerationSprites => decodeGenerationSprites(BigInt(id), family, id, base[id % 2].frames);
+export const fakeSprites = (id: number, family: number): GenerationSprites => decodeGenerationSprites(BigInt(id), family, id, base[id % 2].frames);
 
-function roster(families: FamilyId[]): Roster {
+export function fakeRoster(families: FamilyId[]): Roster {
   let id = 100;
-  return { sampled: 0, floors: families.map(family => ({ family, boss: fake(id++, family), regulars: [0, 1, 2, 3, 4].map(() => fake(id++, family)) })) };
+  return { sampled: 0, floors: families.map(family => ({ family, boss: fakeSprites(id++, family), regulars: [0, 1, 2, 3, 4].map(() => fakeSprites(id++, family)) })) };
 }
 
 function tilePath(game: Game, from: { x: number; y: number }, to: { x: number; y: number }, flying: boolean) {
@@ -56,16 +56,7 @@ function nextDoor(game: Game): Dir | null {
   return dir;
 }
 
-export function run(seed: number, family: FamilyId, families: FamilyId[], god: boolean, onTick?: (game: Game, t: number) => boolean | void) {
-  const game = new Game(fake(7730, family), family, roster(families), seed);
-  const input: Input = { keys: new Set(), move: null, aim: null };
-  const dt = 1 / 60;
-  let t = 0, stuck = 0, last = { x: 0, y: 0 }, lastRoom = game.room, roomTime = 0;
-  const log: string[] = [];
-  while (game.status === "playing" && t < 60 * 40) {
-    t += dt; roomTime += dt;
-    if (game.room !== lastRoom) { lastRoom = game.room; roomTime = 0; }
-    if (god) game.player.invuln = 1;
+export function botInput(game: Game, input: Input) {
     const p = game.player, enemies = game.state.enemies.filter(e => e.alpha > 0.5);
     input.move = null; input.aim = null;
     let target: { x: number; y: number } | null = null;
@@ -93,6 +84,21 @@ export function run(seed: number, family: FamilyId, families: FamilyId[], god: b
       const dx = way.x - p.x, dy = way.y - p.y, l = Math.hypot(dx, dy);
       if (l > 3) input.move = { x: dx / l, y: dy / l };
     }
+    return enemies;
+}
+
+export function run(seed: number, family: FamilyId, families: FamilyId[], god: boolean, onTick?: (game: Game, t: number) => boolean | void) {
+  const game = new Game(fakeSprites(7730, family), family, fakeRoster(families), seed);
+  const input: Input = { keys: new Set(), move: null, aim: null };
+  const dt = 1 / 60;
+  let t = 0, stuck = 0, last = { x: 0, y: 0 }, lastRoom = game.room, roomTime = 0;
+  const log: string[] = [];
+  while (game.status === "playing" && t < 60 * 40) {
+    t += dt; roomTime += dt;
+    if (game.room !== lastRoom) { lastRoom = game.room; roomTime = 0; }
+    if (god) game.player.invuln = 1;
+    const enemies = botInput(game, input);
+    const p = game.player;
     game.update(dt, input);
     if (onTick && onTick(game, t)) break;
     for (const ev of game.drainEvents()) if (ev.type === "floor" || ev.type === "boss" || ev.type === "toast") log.push(`${t.toFixed(0)}s ${ev.type}${"title" in ev ? " " + ev.title : ""}`);
