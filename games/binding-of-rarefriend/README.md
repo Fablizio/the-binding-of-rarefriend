@@ -1,6 +1,6 @@
 # The Binding of RareFriend
 
-*made by Fablizio* · FriendSDK **v0.1.2** · Rare Friends Vibeathon (Character Spotlight)
+Builder: Fablizio ([@Fablizio](https://github.com/Fablizio)) · FriendSDK **v0.1.2** · Rare Friends Vibeathon (Character Spotlight)
 
 A twin-stick, room-by-room dungeon crawler in the spirit of the classic roguelites. **Your verified
 Generations Friend is the hero**, drawn from its canonical on-chain sprite, and its family gives it a

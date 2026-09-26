@@ -246,12 +246,10 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
       <p>{status}</p>
       {phase === "loading" && <div className="bor-spinner" aria-hidden="true" />}
       {phase === "error" && <button type="button" className="bor-primary" disabled={paused} onClick={() => setRevision(value => value + 1)}>Retry</button>}
-      <p className="bor-credit">made by Fablizio</p>
     </div>}
 
     {phase === "title" && player && roster && !menu && <div className="bor-screen bor-title">
       <h1 className="bor-logo">The Binding of <em>RareFriend</em></h1>
-      <p className="bor-credit">made by Fablizio</p>
       <div className="bor-hero">
         <Portrait sprites={player} scale={6} label={`Your Friend number ${String(friendId)}`} />
         <div>
@@ -290,7 +288,6 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
         <button type="button" className="bor-primary" disabled={paused} onClick={() => void startRun()}>Run it back</button>
         <button type="button" disabled={paused} onClick={() => void newCast()}>New cast</button>
       </div>
-      <p className="bor-credit">made by Fablizio</p>
     </div>}
 
     {menu === "pause" && <GameMenu title="Paused" onClose={() => setMenu(null)}>

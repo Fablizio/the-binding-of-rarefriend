@@ -1,7 +1,7 @@
 # The Binding of RareFriend
 
 **A twin-stick dungeon crawler starring your Rare Friends Generations NFT. Every enemy and boss is
-another real Rare Friend.** *made by Fablizio.* Rare Friends Vibeathon entry built on FriendSDK v0.1.2.
+another real Rare Friend.** By [Fablizio](https://github.com/Fablizio). Rare Friends Vibeathon entry built on FriendSDK v0.1.2.
 
 - **Play:** https://fablizio.github.io/the-binding-of-rarefriend/ (needs a wallet on Robinhood mainnet holding a hardwired Generations Friend)
 - **Game source, rules and controls:** [`games/binding-of-rarefriend/`](games/binding-of-rarefriend/README.md)
