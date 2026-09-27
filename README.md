@@ -1,10 +1,11 @@
 # The Binding of RareFriend
 
-![Gameplay demo: a Hoverer Friend with the Chain Spark signature clears a room of five Friends, then fights a boss (recorded with SDK sample sprites)](games/binding-of-rarefriend/media/demo.gif)
+![Gameplay demo: a Hoverer Friend with the Chain Spark signature fights a floor's elite, then its boss (recorded with SDK sample sprites)](games/binding-of-rarefriend/media/demo.gif)
 
 **A twin-stick dungeon crawler starring your Rare Friends Generations NFT. Every enemy and boss is
 another real Rare Friend.** Each Friend also has its own signature ability (from its sprite seed and
-token ID) and a generation bonus. By [Fablizio](https://github.com/Fablizio). Rare Friends Vibeathon entry built on FriendSDK v0.1.2.
+token ID) and a generation bonus. Every floor has its own chiptune theme, an elite Friend and a boss
+introduced by a VS card. By [Fablizio](https://github.com/Fablizio). Rare Friends Vibeathon entry built on FriendSDK v0.1.2.
 
 - **Play:** https://fablizio.github.io/the-binding-of-rarefriend/ (needs a wallet on Robinhood mainnet holding a hardwired Generations Friend)
 - **Game source, rules and controls:** [`games/binding-of-rarefriend/`](games/binding-of-rarefriend/README.md)

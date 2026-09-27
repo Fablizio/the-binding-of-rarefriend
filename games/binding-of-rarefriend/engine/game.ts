@@ -3,7 +3,7 @@ import type { GenerationSprites, SpriteFacing } from "@rarefriends/friendsdk/spr
 import { COLS, ROWS, OPPOSITE, STEP, generateFloor, key, type Dir, type Floor, type Room } from "./dungeon";
 import { createRng, type Rng } from "./rng";
 import type { Roster } from "./roster";
-import { BOSS_ATTACKS, PERKS, RELICS, THEMES, type BossAttack, type FamilyId, type RelicId } from "./themes";
+import { BOSS_ATTACKS, PERKS, RELICS, SPECIAL_MOVES, THEMES, type BossAttack, type FamilyId, type RelicId } from "./themes";
 import { generationBonus, signatureById, signatureFor, type GenerationBonus, type Signature, type SignatureId } from "./signatures";
 import type { Sfx } from "./audio";
 
@@ -39,6 +39,10 @@ export type Enemy = {
   attack: number; lift: number; dir: Vec;
   /** Per-enemy cooldowns for the Orbit Shard and Trailblazer signatures. */
   orbitCd: number; emberCd: number;
+  /** The floor's elite Friend, its special-move timer and whether it already raised help. */
+  special: boolean; sp: number; raised: boolean;
+  /** A Hollow elite's harmless decoy: stands still, fades after `t` seconds. */
+  decoy: boolean;
   facing: SpriteFacing; side: "left" | "right"; moving: boolean;
 };
 export type PickupKind = "heart" | "half" | "spark";
@@ -57,6 +61,8 @@ export type GameOptions = {
   signature?: SignatureId;
 };
 export const ORBIT_RADIUS = 54;
+/** Seconds the boss VS card freezes the room (skippable). */
+export const BOSS_INTRO = 2.4;
 
 export type PlayerStats = {
   maxHp: number; damage: number; fireDelay: number; shotSpeed: number; range: number; speed: number; tearR: number;
@@ -109,6 +115,8 @@ export class Game {
   pendingRoom: { room: Room; from: Dir } | null = null;
   shake = 0;
   bossIntro = 0;
+  /** While > 0 the whole simulation is frozen behind the boss VS card. */
+  intro = 0;
   reducedMotion = false;
   touch = false;
   events: GameEvent[] = [];
@@ -174,7 +182,7 @@ export class Game {
 
   enterFloor(depth: number) {
     this.depth = depth;
-    this.floor = generateFloor(this.rng, depth);
+    this.floor = generateFloor(this.rng, depth, this.cast.family);
     this.roomStates = new Map();
     for (const room of this.floor.rooms.values()) this.roomStates.set(room, { enemies: [], pickups: [], pedestal: null, trapdoor: false });
     const treasure = this.floor.treasure;
@@ -233,15 +241,26 @@ export class Game {
     if (room.kind === "boss") {
       const boss = this.makeEnemy(this.cast.boss, CX, IN_Y + 120, true);
       state.enemies.push(boss);
-      this.bossIntro = 2.2;
+      this.intro = BOSS_INTRO;
+      this.bossIntro = 1;
       this.emit({ type: "boss", enemy: boss });
       this.sfx("boss");
       return;
     }
     const regulars = this.cast.regulars;
-    const budget = 2 + Math.min(this.depth, 3) + this.rng.int(2) + (room.distance > 3 ? 1 : 0);
+    let budget = 2 + Math.min(this.depth, 3) + this.rng.int(2) + (room.distance > 3 ? 1 : 0);
     let spawned = 0;
     const tiles = this.rng.shuffle(this.freeTiles(210));
+    if (room.special && tiles.length) {
+      // The elite: a real Friend of this floor's family, placed as far from the door as the arena allows.
+      const at = [...tiles].sort((a, b) => dist(b, this.player) - dist(a, this.player))[0];
+      tiles.splice(tiles.indexOf(at), 1);
+      const elite = this.makeSpecial(this.rng.pick(regulars), at.x, at.y);
+      state.enemies.push(elite);
+      budget = 1 + Math.min(this.depth, 2);
+      this.emit({ type: "toast", title: `Elite · Friend #${elite.sprites.tokenId}`, text: SPECIAL_MOVES[elite.family] });
+      this.sfx("boss");
+    }
     while (spawned < budget && tiles.length) {
       const sprites = this.rng.pick(regulars);
       const at = tiles.pop()!;
@@ -269,9 +288,21 @@ export class Game {
       uid: this.uid++, kind, family, sprites, x, y, vx: 0, vy: 0, r, hp, maxHp: hp, speed, scale,
       flying: kind === "drifter" || (boss && family === 5), boss, elite, child: false, minion,
       state: "idle", t: this.rng.range(0.4, 1.4), t2: 0, shots: 0, alpha: 1, flash: 0, spawn: 0.5, attack: 0, lift: 0,
-      dir: { x: 0, y: 0 }, orbitCd: 0, emberCd: 0, facing: "down", side: "right", moving: false,
+      dir: { x: 0, y: 0 }, orbitCd: 0, emberCd: 0, special: false, sp: 0, raised: false, decoy: false, facing: "down", side: "right", moving: false,
     };
   }
+
+  makeSpecial(sprites: GenerationSprites, x: number, y: number): Enemy {
+    const e = this.makeEnemy(sprites, x, y, false);
+    const hp = (BASE_HP[e.kind] * 3 + 26) * (1 + this.depth * 0.32);
+    const big = e.kind === "brute";
+    Object.assign(e, { special: true, elite: false, scale: big ? 5 : 4, r: big ? 24 : 20, hp, maxHp: hp, sp: 2.5 });
+    return e;
+  }
+
+  get special() { return this.state.enemies.find(enemy => enemy.special) ?? null; }
+
+  skipIntro() { this.intro = 0; }
 
   // ─── Collision ─────────────────────────────────────────────────────────────
 
@@ -395,6 +426,12 @@ export class Game {
 
   update(dt: number, input: Input) {
     if (this.status !== "playing") { this.updateEffects(dt); return; }
+    if (this.intro > 0 && !this.pendingRoom) {
+      // Boss VS card: the room is frozen (and the run clock stopped) until it ends or is skipped.
+      this.fade = Math.max(0, this.fade - dt / 0.12);
+      this.intro = Math.max(0, this.intro - dt);
+      return;
+    }
     this.time += dt;
     if (this.pendingRoom) {
       this.fade = Math.min(1, this.fade + dt / 0.09);
@@ -520,6 +557,8 @@ export class Game {
       e.flash = Math.max(0, e.flash - dt);
       if (e.spawn > 0) { e.spawn -= dt; continue; }
       if (e.boss && this.bossIntro > 0) continue;
+      if (e.decoy) { e.t -= dt; e.moving = false; continue; }
+      if (e.special && this.specialMove(e, dt)) continue;
       const direct = norm(p.x - e.x, p.y - e.y), d = dist(e, p);
       const toPlayer = e.kind === "glitch" || e.kind === "drifter" ? direct : this.chase(e);
       let vx = 0, vy = 0;
@@ -528,7 +567,11 @@ export class Game {
         case "rattler": vx = toPlayer.x * e.speed; vy = toPlayer.y * e.speed; break;
         case "mimic": {
           if (e.state === "blinkOut") { e.alpha = Math.max(0, e.alpha - dt / 0.3); if (e.alpha <= 0) { Object.assign(e, this.teleportSpot(e, 200)); e.state = "blinkIn"; } break; }
-          if (e.state === "blinkIn") { e.alpha = Math.min(1, e.alpha + dt / 0.3); if (e.alpha >= 1) { e.state = "idle"; e.t = 1.2; } break; }
+          if (e.state === "blinkIn") {
+            e.alpha = Math.min(1, e.alpha + dt / 0.3);
+            if (e.alpha >= 1) { e.state = "idle"; e.t = 1.2; if (e.special) this.fan(e, 5, 0.24, 200); }
+            break;
+          }
           const side = { x: -toPlayer.y, y: toPlayer.x };
           const want = d < 190 ? -1 : d > 270 ? 1 : 0;
           vx = (toPlayer.x * want + side.x * 0.6) * e.speed; vy = (toPlayer.y * want + side.y * 0.6) * e.speed;
@@ -559,6 +602,8 @@ export class Game {
           if (e.t <= 0) {
             const a = Math.PI / 4 + this.rng.int(4) * Math.PI / 2;
             this.enemyTear(e.x, e.y - 18, { x: Math.cos(a), y: Math.sin(a) }, 190);
+            // Elite: every shot is mirrored into a full X.
+            if (e.special) for (const m of [Math.PI - a, -a, Math.PI + a]) this.enemyTear(e.x, e.y - 18, { x: Math.cos(m), y: Math.sin(m) }, 190);
             e.t = this.rng.range(1.8, 2.6);
           }
           break;
@@ -569,7 +614,11 @@ export class Game {
           if (e.state === "charge") {
             const blocked = this.move(e, e.dir.x * 330 * dt, e.dir.y * 330 * dt, e.r, false, false);
             e.moving = true;
-            if (blocked || e.t <= 0) { e.state = "stun"; e.t = 0.9; if (blocked && !this.reducedMotion) this.shake = 0.15; }
+            if (blocked || e.t <= 0) {
+              e.state = "stun"; e.t = 0.9;
+              if (blocked && !this.reducedMotion) this.shake = 0.15;
+              if (blocked && e.special) this.ring(e, 10, 165, this.rng.range(0, 1));
+            }
             continue;
           }
           if (e.state === "stun") { if (e.t <= 0) { e.state = "idle"; e.t = 0.6; } break; }
@@ -581,11 +630,19 @@ export class Game {
         case "glint": {
           if (e.t2 <= 0) { const a = this.rng.range(0, Math.PI * 2); e.dir = { x: Math.cos(a), y: Math.sin(a) }; e.t2 = 1.5; }
           e.t2 -= dt; vx = e.dir.x * e.speed; vy = e.dir.y * e.speed;
-          if (e.t <= 0) { this.ring(e, this.depth === 0 ? 6 : 8, 150, this.rng.range(0, 1)); e.t = 2.6; }
+          if (e.t <= 0) {
+            const n = this.depth === 0 ? 6 : 8, offset = this.rng.range(0, 1);
+            this.ring(e, n, 150, offset);
+            if (e.special) this.ring(e, n, 100, offset + Math.PI / n);
+            e.t = e.special ? 2.9 : 2.6;
+          }
           break;
         }
         case "shade": {
-          if (e.state === "idle") { vx = toPlayer.x * e.speed; vy = toPlayer.y * e.speed; if (e.t <= 0) { e.state = "out"; } }
+          if (e.state === "idle") {
+            vx = toPlayer.x * e.speed; vy = toPlayer.y * e.speed;
+            if (e.t <= 0) { e.state = "out"; if (e.special) this.spawnDecoy(e); }
+          }
           else if (e.state === "out") { e.alpha = Math.max(0, e.alpha - dt / 0.4); if (e.alpha <= 0) { e.state = "hidden"; e.t = 0.9; } }
           else if (e.state === "hidden") { if (e.t <= 0) { Object.assign(e, this.teleportSpot(e, 100, 200)); e.state = "in"; } }
           else if (e.state === "in") { e.alpha = Math.min(1, e.alpha + dt / 0.45); if (e.alpha >= 1) { e.state = "idle"; e.t = 2.4; } }
@@ -600,6 +657,8 @@ export class Game {
         e.facing = f; if (f === "left" || f === "right") e.side = f;
       }
     }
+    // Expired decoys vanish without a kill.
+    if (state.enemies.some(e => e.decoy && e.t <= 0)) state.enemies = state.enemies.filter(e => !(e.decoy && e.t <= 0));
     // Keep enemies from stacking on one another.
     const list = state.enemies;
     for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
@@ -612,8 +671,60 @@ export class Game {
     }
     // Contact damage.
     for (const e of list) {
-      if (e.spawn > 0 || e.alpha < 0.6 || (e.boss && this.bossIntro > 0)) continue;
+      if (e.spawn > 0 || e.alpha < 0.6 || e.decoy || (e.boss && this.bossIntro > 0)) continue;
       if (dist(e, p) < e.r + p.r - 4) this.hurtPlayer(e.boss && this.depth >= 1 ? 2 : 1, e);
+    }
+  }
+
+  /** Aimed fan of shots (Mask elite after a blink). */
+  private fan(e: Enemy, n: number, spread: number, speed: number) {
+    const aim = norm(this.player.x - e.x, this.player.y - 24 - (e.y - e.r)), base = Math.atan2(aim.y, aim.x);
+    for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * spread; this.enemyTear(e.x, e.y - e.r, { x: Math.cos(a), y: Math.sin(a) }, speed); }
+  }
+
+  private spawnDecoy(e: Enemy) {
+    const decoy = this.makeEnemy(e.sprites, e.x, e.y, false, true);
+    Object.assign(decoy, { decoy: true, scale: e.scale, r: e.r, hp: 3, maxHp: 3, spawn: 0, t: 2.6, alpha: 0.9, elite: false, facing: e.facing, side: e.side });
+    this.state.enemies.push(decoy);
+  }
+
+  private summonKin(e: Enemy, count: number) {
+    const minions = this.state.enemies.filter(other => other.minion && !other.decoy).length;
+    for (let i = 0; i < Math.min(count, 4 - minions); i++) {
+      const spot = this.openSpot({ x: e.x + (i ? 30 : -30), y: e.y + 16 });
+      const minion = this.makeEnemy(this.rng.pick(this.cast.regulars), spot.x, spot.y, false, true);
+      minion.maxHp = minion.hp = minion.hp * 0.7;
+      this.state.enemies.push(minion);
+    }
+    this.burst(e.x, e.y - e.r, this.theme.accent, 12);
+  }
+
+  /**
+   * Elite family moves driven by their own timer. Returns true when the move takes over the enemy's
+   * movement this frame (the Hoverer dive).
+   */
+  private specialMove(e: Enemy, dt: number) {
+    e.sp -= dt;
+    switch (e.family) {
+      case 0: if (!e.raised && e.hp < e.maxHp * 0.65) { e.raised = true; this.summonKin(e, 2); this.texts.push({ x: e.x, y: e.y - e.r * 3, text: "rise!", life: 0.9, color: "#ffd23f" }); } return false;
+      case 2: if (e.sp <= 0) { e.sp = 5.5; this.summonKin(e, 2); } return false;
+      case 5: {
+        if (e.state === "rise") {
+          e.moving = false; e.lift = Math.min(28, e.lift + dt * 70);
+          if (e.t <= 0) { e.state = "dive"; e.t = 0.5; e.dir = norm(this.player.x - e.x, this.player.y - e.y); }
+          e.t -= dt; return true;
+        }
+        if (e.state === "dive") {
+          e.moving = true; e.lift = Math.max(0, e.lift - dt * 60);
+          this.move(e, e.dir.x * 360 * dt, e.dir.y * 360 * dt, e.r, true, false);
+          e.t -= dt;
+          if (e.t <= 0) { e.state = "idle"; e.lift = 0; e.sp = 4; }
+          return true;
+        }
+        if (e.sp <= 0) { e.state = "rise"; e.t = 0.55; return true; }
+        return false;
+      }
+      default: return false;
     }
   }
 
@@ -739,6 +850,7 @@ export class Game {
   private killEnemy(e: Enemy) {
     const state = this.state;
     state.enemies = state.enemies.filter(other => other !== e);
+    if (e.decoy) { this.burst(e.x, e.y - e.r, "#000000", 10); this.sfx("hit"); return; }
     this.kills++;
     this.burst(e.x, e.y - e.r, this.theme.accent, e.boss ? 60 : 16);
     this.burst(e.x, e.y - e.r, "#000000", e.boss ? 30 : 8);
@@ -747,9 +859,11 @@ export class Game {
       this.defeated.push({ id: e.sprites.tokenId, family: e.family, sprites: e.sprites, boss: e.boss });
     this.texts.push({ x: e.x, y: e.y - e.r * 2 - 10, text: `#${e.sprites.tokenId}`, life: 1.1, color: "#ffffff" });
     if (e.kind === "cell" && !e.child) {
-      for (const side of [-1, 1]) {
-        const child = this.makeEnemy(e.sprites, e.x + side * 14, e.y, false, e.minion);
-        Object.assign(child, { child: true, scale: 2, r: 10, hp: e.maxHp * 0.4, maxHp: e.maxHp * 0.4, speed: e.speed * 1.7, spawn: 0.15, elite: false });
+      // Cells split in two; the Cellular elite splits in three.
+      const share = e.special ? 0.22 : 0.4;
+      for (const side of e.special ? [-1, 0, 1] : [-1, 1]) {
+        const child = this.makeEnemy(e.sprites, e.x + side * 16, e.y + (side ? 0 : 14), false, e.minion);
+        Object.assign(child, { child: true, scale: e.special ? 3 : 2, r: e.special ? 14 : 10, hp: e.maxHp * share, maxHp: e.maxHp * share, speed: e.speed * 1.5, spawn: 0.15, elite: false });
         state.enemies.push(child);
       }
     }
@@ -762,6 +876,14 @@ export class Game {
       state.pedestal = { x: CX + 110, y: CY, relic: this.rollRelic(), taken: false };
       state.trapdoor = true;
       this.emit({ type: "toast", title: this.depth === this.floors - 1 ? "The last keeper falls" : "Boss defeated", text: this.depth === this.floors - 1 ? "Step into the light to escape." : "Drop down the hatch to descend." });
+      return;
+    }
+    if (e.special) {
+      // Guaranteed reward: a heart if you are hurt, otherwise a bundle of three sparks.
+      const spot = this.openSpot(e), hurt = this.player.hp < this.stats.maxHp;
+      if (hurt) state.pickups.push({ ...spot, kind: "heart", t: 0 });
+      else for (const dx of [-22, 0, 22]) state.pickups.push({ ...this.openSpot({ x: spot.x + dx, y: spot.y }), kind: "spark", t: 0 });
+      this.emit({ type: "toast", title: "Elite defeated", text: hurt ? "It left a heart." : "It left a bundle of sparks." });
       return;
     }
     const roll = this.rng.next(), spot = this.openSpot(e);

@@ -6,6 +6,8 @@ import { COLS, ROWS, STEP, OPPOSITE, key, type Dir, type Room } from "../engine/
 import type { Roster } from "../engine/roster";
 import type { FamilyId } from "../engine/themes";
 export { SIGNATURES, signatureFor, generationBonus } from "../engine/signatures";
+export { ALL_LAYOUTS, layoutConnected, generateFloor } from "../engine/dungeon";
+export { createRng } from "../engine/rng";
 
 const base = [sampleFriendSprites(7730n)!, sampleFriendSprites(3412n)!];
 export const fakeSprites = (id: number, family: number): GenerationSprites => decodeGenerationSprites(BigInt(id), family, id, base[id % 2].frames);
@@ -121,5 +123,5 @@ export function run(seed: number, family: FamilyId, families: FamilyId[], god: b
     if (stuck > 8 || roomTime > 120) { log.push(`STUCK in ${game.room.kind} room at ${p.x.toFixed(0)},${p.y.toFixed(0)} enemies=${game.state.enemies.map(e => `${e.kind}:${e.state}:a${e.alpha.toFixed(1)}:hp${e.hp.toFixed(1)}@${e.x.toFixed(0)},${e.y.toFixed(0)}`).join(' ')}`); break; }
   }
   return { status: game.status, depth: game.depth, time: t, kills: game.kills, defeated: game.defeated.length, hp: game.player.hp, relics: game.relics,
-    signature: game.signature.id, generation: game.genBonus?.generation ?? null, log };
+    signature: game.signature.id, generation: game.genBonus?.generation ?? null, endRoom: game.room.special ? "elite" : game.room.kind, log };
 }

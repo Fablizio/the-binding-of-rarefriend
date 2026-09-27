@@ -2,7 +2,7 @@
 import { COLS, ROWS, STEP, key, type Dir, type Room } from "./dungeon";
 import { CX, CY, DOOR_POS, IN_H, IN_W, IN_X, IN_Y, TILE, VIEW_H, VIEW_W, WALL, type Enemy, type Game } from "./game";
 import { drawFriend } from "./sprites";
-import { FAMILY_NAMES, RELICS, THEMES, type Theme } from "./themes";
+import { FAMILY_NAMES, RELICS, SPECIAL_MOVES, THEMES, type Theme } from "./themes";
 
 const hash = (x: number, y: number, s = 0) => {
   let h = (x * 374761393 + y * 668265263 + s * 2246822519) >>> 0;
@@ -179,22 +179,36 @@ function paintMinimap(ctx: CanvasRenderingContext2D, game: Game) {
     ctx.fillRect(x + 1, y + 1, cw - 2, ch - 2);
     if (room.kind === "boss") { ctx.fillStyle = "#e0243f"; ctx.fillRect(x + cw / 2 - 2, y + ch / 2 - 2, 4, 4); }
     if (room.kind === "treasure") { ctx.fillStyle = "#ffd23f"; ctx.fillRect(x + cw / 2 - 2, y + ch / 2 - 2, 4, 4); }
+    if (room.special && !room.cleared) {
+      // Elite room: a small gold diamond with a dark rim.
+      const cx = x + cw / 2, cy = y + ch / 2;
+      ctx.fillStyle = "#000"; ctx.beginPath(); ctx.moveTo(cx, cy - 5); ctx.lineTo(cx + 5, cy); ctx.lineTo(cx, cy + 5); ctx.lineTo(cx - 5, cy); ctx.fill();
+      ctx.fillStyle = "#ffb000"; ctx.beginPath(); ctx.moveTo(cx, cy - 3); ctx.lineTo(cx + 3, cy); ctx.lineTo(cx, cy + 3); ctx.lineTo(cx - 3, cy); ctx.fill();
+    }
   }
 }
 
 function paintEnemy(ctx: CanvasRenderingContext2D, game: Game, e: Enemy, frame: number) {
   const theme = game.theme;
-  const halo = e.flash > 0 ? "#ffffff" : e.elite ? "#ffffff" : theme.accent;
+  const halo = e.flash > 0 ? "#ffffff" : e.special ? "#ffb000" : e.elite ? "#ffffff" : theme.accent;
   const ink = e.flash > 0 ? theme.accent : "#000000";
   let alpha = e.alpha;
   if (e.spawn > 0) alpha *= 1 - e.spawn / 0.5;
   const shadowW = e.r * 1.1;
   ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.beginPath(); ctx.ellipse(e.x, e.y + 2, shadowW, shadowW * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+  if (e.special && alpha > 0.5) { ctx.strokeStyle = "#ffb000"; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(e.x, e.y + 2, shadowW + 8, shadowW * 0.35 + 4, 0, 0, Math.PI * 2); ctx.stroke(); }
   if (e.elite && alpha > 0.5) { ctx.strokeStyle = theme.accent; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(e.x, e.y + 2, shadowW + 6, shadowW * 0.35 + 3, 0, 0, Math.PI * 2); ctx.stroke(); }
   let x = e.x, y = e.y - e.lift;
   if ((e.state === "windup" || e.state === "charge-windup") && !game.reducedMotion) x += Math.sin(game.time * 60) * 2;
   if (alpha <= 0.02) return;
   drawFriend(ctx, e.sprites, x, y + 2, { facing: e.facing, side: e.side, walking: e.moving, frame }, e.scale, ink, halo, alpha);
+  if (e.special && alpha > 0.5) {
+    // Elite health bar above its head.
+    const w = 56, bx = e.x - w / 2, by = y - e.r * 2 - 30;
+    ctx.fillStyle = "#000"; ctx.fillRect(bx - 2, by - 2, w + 4, 8);
+    ctx.fillStyle = "#3a2a00"; ctx.fillRect(bx, by, w, 4);
+    ctx.fillStyle = "#ffb000"; ctx.fillRect(bx, by, w * Math.max(0, e.hp / e.maxHp), 4);
+  }
 }
 
 export function render(ctx: CanvasRenderingContext2D, game: Game, now: number) {
@@ -327,10 +341,13 @@ function paintHud(ctx: CanvasRenderingContext2D, game: Game) {
   ctx.fillStyle = theme.accent; ctx.font = "bold 18px ui-monospace, monospace";
   ctx.fillText(`FLOOR ${game.depth + 1}/${game.floors} · ${theme.floorName.toUpperCase()}`, VIEW_W / 2, 26);
   ctx.fillStyle = "#9a9a9a"; ctx.font = "12px ui-monospace, monospace";
-  const boss = game.boss;
+  const boss = game.boss, elite = boss ? null : game.special;
   if (boss) { ctx.fillStyle = "#ff6b7d"; ctx.font = "bold 13px ui-monospace, monospace"; }
+  else if (elite) { ctx.fillStyle = "#ffb000"; ctx.font = "bold 13px ui-monospace, monospace"; }
+  const hostile = game.state.enemies.filter(e => !e.decoy).length;
   ctx.fillText(boss ? `BOSS · Friend #${boss.sprites.tokenId} · ${boss.sprites.familyName}`
-    : `${FAMILY_NAMES[game.cast.family]} territory · ${game.state.enemies.length ? `${game.state.enemies.length} Friends hostile` : "room clear"}`, VIEW_W / 2, 46);
+    : elite ? `ELITE · Friend #${elite.sprites.tokenId} · ${SPECIAL_MOVES[elite.family]}`
+    : `${FAMILY_NAMES[game.cast.family]} territory · ${hostile ? `${hostile} Friends hostile` : "room clear"}`, VIEW_W / 2, 46);
   paintMinimap(ctx, game);
   // Signature, generation bonus, perk, then relics collected.
   const bottom = IN_Y + IN_H + WALL + 19;

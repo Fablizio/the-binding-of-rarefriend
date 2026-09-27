@@ -53,7 +53,11 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
   const [muted, setMuted] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [toast, setToast] = useState<{ title: string; text: string; key: number } | null>(null);
-  const [bossBanner, setBossBanner] = useState<{ id: bigint; family: string; sprites: GenerationSprites; key: number } | null>(null);
+  const [vs, setVs] = useState<{ boss: GenerationSprites; floorName: string; accent: string; key: number } | null>(null);
+  const vsOpen = useRef(false);
+  const [musicOn, setMusicOn] = useState(true);
+  /** Bumped by every roster load, so a slow load that was superseded (New cast twice, Friend change) is ignored. */
+  const loadToken = useRef(0);
   const [summary, setSummary] = useState<{ depth: number; kills: number; sparks: number; time: number; defeated: Defeated[]; floors: number } | null>(null);
   const [generation, setGeneration] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
@@ -78,13 +82,15 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
     return () => { motion.removeEventListener("change", update); coarse.removeEventListener("change", update); audioRef.current?.dispose(); audioRef.current = null; };
   }, []);
   useEffect(() => { audioRef.current?.setMuted(muted); }, [muted]);
+  useEffect(() => { audioRef.current?.setMusic(musicOn); }, [musicOn]);
   useEffect(() => { if (gameRef.current) gameRef.current.reducedMotion = reducedMotion; }, [reducedMotion]);
   useEffect(() => { if (paused || menu) clearInput(); }, [paused, menu, clearInput]);
 
   // Load the session, the player's canonical artwork and a fresh cast of real Friends.
   useEffect(() => {
     let cancelled = false;
-    gameRef.current = null; setRoster(null); setPhase("loading"); setMenu(null); setSummary(null); setGeneration(null);
+    const token = ++loadToken.current;
+    gameRef.current = null; vsOpen.current = false; setVs(null); setRoster(null); setPhase("loading"); setMenu(null); setSummary(null); setGeneration(null);
     setStatus("Verifying your Friend and summoning the dungeon…");
     // Your own Friend's generation: one read, never blocking. A failed read means no generation bonus.
     const generationRead = readGeneration(friendId);
@@ -96,10 +102,10 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
       setStatus("Reading the dungeon's Friends from Robinhood Chain…");
       const cast = await loadRoster(createRng(randomSeed()), friendId, sprites.familyId as FamilyId);
       const gen = await generationRead;
-      if (cancelled) return;
+      if (cancelled || token !== loadToken.current) return;
       setGeneration(gen); setRoster(cast); setPhase("title");
     })().catch(cause => {
-      if (cancelled) return;
+      if (cancelled || token !== loadToken.current) return;
       setPhase("error");
       setStatus(cause instanceof Error && cause.message.length < 140 ? cause.message : "The dungeon could not load its Friends. Check your connection and retry.");
     });
@@ -109,21 +115,25 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
   const startRun = useCallback(async () => {
     if (!player || !roster || live.current.paused) return;
     void audioRef.current?.unlock();
+    vsOpen.current = false; setVs(null);
     const game = new Game(player, player.familyId as FamilyId, roster, randomSeed(), { generation });
     game.reducedMotion = live.current.reducedMotion;
     game.touch = window.matchMedia("(pointer: coarse)").matches;
     gameRef.current = game;
-    clearInput(); setSummary(null); setCopied(false); setBossBanner(null); setMenu(null); setPhase("playing");
+    clearInput(); setSummary(null); setCopied(false); setMenu(null); setPhase("playing");
     canvasRef.current?.focus();
   }, [player, roster, clearInput, generation]);
 
   const newCast = useCallback(async () => {
-    if (!player) return;
-    setPhase("loading"); setStatus("Summoning a new cast of Friends…"); gameRef.current = null;
+    if (!player || live.current.phase === "loading") return;
+    const token = ++loadToken.current;
+    setPhase("loading"); setStatus("Summoning a new cast of Friends…"); gameRef.current = null; live.current.phase = "loading";
     try {
       const cast = await loadRoster(createRng(randomSeed()), friendId, player.familyId as FamilyId);
+      if (token !== loadToken.current) return;
       setRoster(cast); setPhase("title");
     } catch {
+      if (token !== loadToken.current) return;
       setPhase("error"); setStatus("The dungeon could not load its Friends. Check your connection and retry.");
     }
   }, [player, friendId]);
@@ -146,17 +156,24 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
           for (const event of game.drainEvents()) {
             if (event.type === "sfx") audioRef.current?.play(event.sfx);
             else if (event.type === "toast") setToast({ ...event, key: now });
-            else if (event.type === "boss") setBossBanner({ id: event.enemy.sprites.tokenId, family: event.enemy.sprites.familyName, sprites: event.enemy.sprites, key: now });
-            else if (event.type === "dead" || event.type === "won") {
+            else if (event.type === "boss") {
+              vsOpen.current = true;
+              setVs({ boss: event.enemy.sprites, floorName: game.theme.floorName, accent: game.theme.accent, key: now });
+            } else if (event.type === "dead" || event.type === "won") {
               setSummary({ depth: game.depth, kills: game.kills, sparks: game.sparks, time: game.time, defeated: [...game.defeated], floors: game.floors });
               setPhase(event.type); clearInput();
+              audioRef.current?.jingle(event.type === "won" ? "win" : "lose");
             }
           }
         }
+        // The VS card closes when its freeze ends (timed out or skipped).
+        if (vsOpen.current && game.intro <= 0) { vsOpen.current = false; setVs(null); }
+        audioRef.current?.theme(state.phase === "playing" && game.status === "playing" ? game.cast.family : null, Boolean(game.boss), running);
         render(ctx, game, now);
         paintSticks(ctx);
       } else {
         ctx.fillStyle = "#070708"; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+        audioRef.current?.theme(null, false, false);
       }
       frame = requestAnimationFrame(loop);
     };
@@ -174,24 +191,26 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
     return () => cancelAnimationFrame(frame);
   }, [clearInput]);
 
-  // Toast and boss banner timers.
+  // Toast timer.
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2800); return () => clearTimeout(t); }, [toast]);
-  useEffect(() => { if (!bossBanner) return; const t = setTimeout(() => setBossBanner(null), 2200); return () => clearTimeout(t); }, [bossBanner]);
 
   // Keyboard, blur and visibility.
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       const k = event.key.toLowerCase(), state = live.current;
       if (state.paused) return;
+      audioRef.current?.wake();
       if (k === "m" && !event.repeat) { setMuted(value => !value); return; }
       if (state.phase === "playing" && !state.menu) {
+        // Any key (except pause) skips the boss VS card.
+        if (vsOpen.current && k !== "p" && k !== "escape" && !["shift", "control", "alt", "meta"].includes(k)) gameRef.current?.skipIntro();
         if (MOVE_KEYS.has(k)) { event.preventDefault(); input.current.keys.add(k); }
         if ((k === "p" || k === "escape") && !event.repeat) { event.preventDefault(); clearInput(); setMenu("pause"); }
       } else if (state.phase === "title" && !state.menu && k === "enter" && !event.repeat) { event.preventDefault(); void startRun(); }
     };
     const up = (event: KeyboardEvent) => input.current.keys.delete(event.key.toLowerCase());
     const blur = () => { clearInput(); if (live.current.phase === "playing" && !live.current.menu) setMenu("pause"); };
-    const visibility = () => { if (document.hidden) blur(); };
+    const visibility = () => { audioRef.current?.setHidden(document.hidden); if (document.hidden) blur(); };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
     window.addEventListener("blur", blur); document.addEventListener("visibilitychange", visibility);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", visibility); };
@@ -235,6 +254,8 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
       onPointerDown={event => {
         if (!active) return;
         event.preventDefault(); event.currentTarget.focus();
+        audioRef.current?.wake();
+        if (vsOpen.current) { gameRef.current?.skipIntro(); return; }
         try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* capture is optional */ }
         const at = toView(event);
         if (event.pointerType === "mouse") { if (event.button === 0) sticks.current.mouse = at; return; }
@@ -263,10 +284,20 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
       <button type="button" onClick={() => setMuted(value => !value)} disabled={paused} aria-label={muted ? "Sound on" : "Sound off"} aria-pressed={muted}>{muted ? "♪̸" : "♪"}</button>
     </div>}
 
-    {toast && phase === "playing" && <div className="bor-toast" key={toast.key} role="status"><strong>{toast.title}</strong><span>{toast.text}</span></div>}
-    {bossBanner && phase === "playing" && <div className={`bor-boss${reducedMotion ? " still" : ""}`} key={bossBanner.key} role="status">
-      <Portrait sprites={bossBanner.sprites} scale={5} halo="#e0243f" label={`Boss Friend number ${bossBanner.id}`} />
-      <div><small>BOSS</small><strong>Friend #{String(bossBanner.id)}</strong><span>{bossBanner.family} keeper of {THEMES[bossBanner.sprites.familyId as FamilyId].floorName}</span></div>
+    {toast && phase === "playing" && !vs && <div className="bor-toast" key={toast.key} role="status"><strong>{toast.title}</strong><span>{toast.text}</span></div>}
+    {vs && player && phase === "playing" && !menu && <div className={`bor-vs${reducedMotion ? " still" : ""}`} key={vs.key} role="status"
+      style={{ "--vs-accent": vs.accent } as React.CSSProperties}
+      onPointerDown={event => { event.preventDefault(); if (!paused) { audioRef.current?.wake(); gameRef.current?.skipIntro(); } }}>
+      <div className="bor-vs-side you">
+        <Portrait sprites={player} scale={8} label={`Your Friend number ${id}`} />
+        <strong>Friend #{id}</strong><span>{player.familyName} family</span>{signature && <span>Signature: {signature.name}</span>}
+      </div>
+      <div className="bor-vs-mid" aria-label="versus"><span>VS</span></div>
+      <div className="bor-vs-side them">
+        <Portrait sprites={vs.boss} scale={8} halo="#e0243f" label={`Boss Friend number ${vs.boss.tokenId}`} />
+        <strong>Friend #{String(vs.boss.tokenId)}</strong><span>{vs.boss.familyName} family</span><span>Keeper of {vs.floorName}</span>
+      </div>
+      <small className="bor-vs-skip">{touch ? "Tap" : "Press any key"} to fight</small>
     </div>}
 
     {(phase === "loading" || phase === "error") && <div className="bor-screen" role={phase === "error" ? "alert" : "status"}>
@@ -331,15 +362,17 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
     {menu === "pause" && <GameMenu title="Paused" onClose={() => setMenu(null)}>
       <p>Floor {(gameRef.current?.depth ?? 0) + 1} · {gameRef.current?.theme.floorName}</p>
       <label><input type="checkbox" checked={muted} disabled={paused} onChange={event => setMuted(event.target.checked)} /> Mute sound</label>
+      <label><input type="checkbox" checked={musicOn} disabled={paused} onChange={event => setMusicOn(event.target.checked)} /> Music</label>
       <label><input type="checkbox" checked={reducedMotion} disabled={paused} onChange={event => setReducedMotion(event.target.checked)} /> Reduce motion</label>
       <div className="bor-menu-actions">
-        <button type="button" className="rf-frame-primary" disabled={paused} onClick={() => setMenu(null)}>Resume</button>
+        <button type="button" className="rf-frame-primary" disabled={paused} onClick={() => { audioRef.current?.wake(); setMenu(null); }}>Resume</button>
         <button type="button" disabled={paused} onClick={() => { gameRef.current = null; setMenu(null); setPhase("title"); }}>Quit run</button>
       </div>
       <p className="bor-small">No RF is spent or won. Progress lasts for this run only.</p>
     </GameMenu>}
     {menu === "settings" && <GameMenu title="Settings" onClose={() => setMenu(null)}>
       <label><input type="checkbox" checked={muted} disabled={paused} onChange={event => setMuted(event.target.checked)} /> Mute sound</label>
+      <label><input type="checkbox" checked={musicOn} disabled={paused} onChange={event => setMusicOn(event.target.checked)} /> Music (a chiptune theme per floor)</label>
       <label><input type="checkbox" checked={reducedMotion} disabled={paused} onChange={event => setReducedMotion(event.target.checked)} /> Reduce motion (no shake, fades or bobbing; still sprite frames)</label>
       <p className="bor-small">Every enemy and boss is a real Rare Friends Generations token, drawn from its canonical on-chain artwork. Each run samples a new cast. Play is free: no RF purchases or rewards.</p>
       <button type="button" className="rf-frame-primary" disabled={paused} onClick={() => setMenu(null)}>Back</button>

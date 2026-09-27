@@ -86,14 +86,36 @@ try {
     // Drive the game through test-only engine access: move the player into rooms to see enemies.
     await frameHandle.evaluate(() => new Promise(r => setTimeout(r, 300)));
     await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-play.png`) });
-    // Title card shows the signature and (from the fixture's generation read) the generation bonus.
-    // End screens: reach the engine through React's fiber for this test only (no hook exists in the game build).
-    await frameHandle.evaluate(({ won }) => {
+    // Reach the engine through React's fiber, for this test only (no hook exists in the game build).
+    const withGame = (fn, arg) => frameHandle.evaluate(`(() => {
       const canvas = document.querySelector("canvas");
       let fiber = canvas[Object.keys(canvas).find(k => k.startsWith("__reactFiber"))];
       while (fiber && typeof fiber.type !== "function") fiber = fiber.return;
       const game = fiber.memoizedState.next.memoizedState.current;
       if (!game) throw new Error("no running game");
+      return (${fn})(game, ${JSON.stringify(arg ?? null)});
+    })()`);
+    // The floor's elite room: an arena layout, the elite Friend and its minimap pip.
+    await withGame(game => { game.player.invuln = 99; game.pendingRoom = { room: game.floor.special, from: Object.keys(game.floor.special.doors)[0] }; });
+    await page.waitForTimeout(900);
+    const elite = await withGame(game => ({ special: game.room.special, elites: game.state.enemies.filter(e => e.special).length }));
+    assert.deepEqual(elite, { special: true, elites: 1 }, `${view.name}: elite room`);
+    await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-elite.png`) });
+    // Boss room: the VS card appears and the room stays frozen behind it until skipped.
+    await withGame(game => { game.player.invuln = 99; game.pendingRoom = { room: game.floor.boss, from: Object.keys(game.floor.boss.doors)[0] }; });
+    await game.locator(".bor-vs").waitFor({ timeout: 5000 });
+    await page.waitForTimeout(500);
+    await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-vs.png`) });
+    const frozen = await withGame(game => { const b = game.boss; return { x: b.x, y: b.y, intro: game.intro, time: game.time }; });
+    await page.waitForTimeout(300);
+    const later = await withGame(game => { const b = game.boss; return { x: b.x, y: b.y, intro: game.intro, time: game.time }; });
+    assert(frozen.intro > 0 && later.x === frozen.x && later.y === frozen.y && later.time === frozen.time, `${view.name}: sim must freeze behind the VS card`);
+    if (view.touch) await game.locator(".bor-vs").tap(); else await page.keyboard.press("x");
+    await game.locator(".bor-vs").waitFor({ state: "detached", timeout: 3000 });
+    await page.waitForTimeout(400);
+    await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-boss.png`) });
+    // End screens.
+    await withGame((game, { won }) => {
       for (const floor of game.roster.floors) for (const sprites of [...floor.regulars, floor.boss])
         game.defeated.push({ id: sprites.tokenId, family: sprites.familyId, sprites, boss: sprites === floor.boss });
       if (won) { game.depth = game.floors - 1; game.state.trapdoor = true; game.player.x = 480; game.player.y = 298; game.player.invuln = 99; }

@@ -4,7 +4,21 @@ import { build } from "esbuild";
 import { resolve } from "node:path";
 const out = resolve("games/binding-of-rarefriend/.artifacts/sim.mjs");
 await build({ entryPoints: ["games/binding-of-rarefriend/tests/sim.ts"], bundle: true, platform: "node", format: "esm", outfile: out, logLevel: "error" });
-const { run, SIGNATURES, signatureFor, generationBonus } = await import(out);
+const { run, SIGNATURES, signatureFor, generationBonus, ALL_LAYOUTS, layoutConnected, generateFloor, createRng } = await import(out);
+
+// Every room layout is 13×7 and fully connected with all four doors open.
+ALL_LAYOUTS.forEach((layout, i) => {
+  assert(layout.length === 7 && layout.every(row => row.length === 13), `layout ${i} size`);
+  assert(layoutConnected(layout), `layout ${i} is not connected: ${layout.join("|")}`);
+});
+// Every floor has an elite room, never the start, boss or treasure room.
+let fallback = 0, normals = 0;
+for (let s = 0; s < 300; s++) {
+  const floor = generateFloor(createRng(s), s % 4, s % 9);
+  assert(floor.special && floor.special.kind === "normal", `floor ${s} has no elite room`);
+  for (const room of floor.rooms.values()) if (room.kind === "normal") { normals++; if (room.tiles.flat().every(t => t === 0)) fallback++; }
+}
+console.log(`layouts: ${ALL_LAYOUTS.length} connected; 300 floors each have an elite room; empty-room fallbacks ${fallback}/${normals}`);
 
 // Signatures are deterministic per Friend and spread evenly over token IDs and seeds.
 const counts = Object.fromEntries(SIGNATURES.map(s => [s.id, 0]));
@@ -38,6 +52,8 @@ const summarize = list => ({ runs: list.length, won: list.filter(r => r.status =
   avgKills: (list.reduce((a, r) => a + r.kills, 0) / list.length).toFixed(1) });
 console.log("invulnerable bot:", JSON.stringify(summarize(results.god)));
 console.log("normal bot:", JSON.stringify(summarize(results.normal)));
+const where = {}; for (const r of results.normal) if (r.status === "dead") where[r.endRoom] = (where[r.endRoom] ?? 0) + 1;
+console.log("normal bot deaths by room:", JSON.stringify(where));
 
 // Balance: the same nine normal runs (one per family, no generation bonus) with each signature.
 console.log("normal bot by signature (9 runs each, same seeds):");

@@ -23,9 +23,9 @@ async function step(capture: boolean) {
 
 window.demo = (async () => {
   const log: string[] = [];
-  // Segment 1: a busy fight on floor 2 (five or more Friends in the room).
-  while (!(game.depth >= 1 && game.room.kind === "normal" && !game.room.cleared && game.state.enemies.length >= 5) && t < 900) await step(false);
-  log.push(`fight from ${t.toFixed(1)}s, floor ${game.depth + 1}, ${game.state.enemies.length} enemies`);
+  // Segment 1: the floor-2 elite room (the elite Friend plus its escorts).
+  while (!(game.depth >= 1 && game.room.special && game.special && game.special.spawn <= 0.2) && t < 900) await step(false);
+  log.push(`elite fight from ${t.toFixed(1)}s, floor ${game.depth + 1}, ${game.state.enemies.length} enemies`);
   for (let i = 0; i < 60 * 7.5 && game.status === "playing"; i++) await step(true);
   // Segment 2: the floor's boss, after its intro.
   while (!(game.boss && game.bossIntro <= 0.2) && t < 1800 && game.status === "playing") await step(false);

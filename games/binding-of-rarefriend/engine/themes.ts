@@ -84,3 +84,16 @@ export const RELICS: readonly Relic[] = [
   { id: "hollowheart", name: "Hollow Heart", text: "Faster feet, longer invulnerability." },
   { id: "signal", name: "Signal Green", text: "Shots home in on enemies." },
 ];
+
+/** Each floor's elite Friend (one per floor, in a marked room) adds one family move to its usual behaviour. */
+export const SPECIAL_MOVES: Readonly<Record<FamilyId, string>> = {
+  0: "Raises two Rattlers when wounded.",
+  1: "Fires a fan of shots after every blink.",
+  2: "Calls its Kin to help.",
+  3: "Splits into three cells.",
+  4: "Fires mirrored shots in an X.",
+  5: "Rises, then dives at you.",
+  6: "Its charges end in a shockwave.",
+  7: "Bursts in a double ring.",
+  8: "Leaves a decoy when it fades.",
+};

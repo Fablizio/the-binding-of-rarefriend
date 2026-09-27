@@ -1,6 +1,8 @@
 # The Binding of RareFriend
 
-![Gameplay demo: a Hoverer Friend with the Chain Spark signature clears a room of five Friends, then fights a boss (recorded with SDK sample sprites)](media/demo.gif)
+![Gameplay demo: a Hoverer Friend with the Chain Spark signature fights a floor's elite, then its boss (recorded with SDK sample sprites)](media/demo.gif)
+
+![The boss VS card: your Friend against the floor's keeper](media/vs.png)
 
 Builder: Fablizio · [GitHub @Fablizio](https://github.com/Fablizio) · [X @FabrizioCottone](https://x.com/FabrizioCottone) · [Telegram @Fablizio](https://t.me/Fablizio) · FriendSDK **v0.1.2** · Rare Friends Vibeathon (Character Spotlight)
 
@@ -44,17 +46,25 @@ No transaction or signature is ever requested.
 | Pause | P or Esc, or the **II** button | **II** button |
 | Mute | M, or the **♪** button | **♪** button |
 
-Settings (title screen) and the pause menu include **Mute** and **Reduce motion** (no screen shake,
-room fades, bobbing or walk cycles). Losing focus or hiding the tab pauses the run, and the game
-freezes whenever the runtime opens its own menus.
+Settings (title screen) and the pause menu include **Mute**, **Music** (on by default) and **Reduce
+motion** (no screen shake, room fades, bobbing, walk cycles or VS-card slide). Losing focus or hiding
+the tab pauses the run and silences the music, and the game freezes whenever the runtime opens its own
+menus.
 
 ## Rules
 
 - A run is **4 floors**. Each floor is a grid of single-screen rooms: a start room, fights, one
   **treasure room** (gold door) and a **boss room** (red door, farthest from the start).
 - Doors lock until every Friend in the room is defeated. Clearing a room may drop a heart or a spark.
-- Beat the floor's boss (the keeper, a real Friend at 6× size) to get a relic, a heart and the hatch
-  down. The last boss opens the way out.
+- Each floor has one **elite room** (gold diamond on the minimap), the normal room farthest from the
+  start, in an arena layout. Its **elite** is a real Friend of the floor's family at 4× size with a gold
+  halo, a health bar, more health and one extra family move (table below). It always drops a reward: a
+  heart if you are hurt, otherwise a bundle of three sparks.
+- Entering a boss room shows a **VS card**: your Friend (family, signature) against the keeper (a real
+  Friend at 6× size). The room is frozen while it shows (about 2.4 s); any key or a tap skips it. With
+  reduced motion it is a static card.
+- Beat the floor's boss (the keeper) to get a relic, a heart and the hatch down. The last boss opens
+  the way out.
 - You start with 3 hearts. Contact and enemy shots cost half a heart (bosses a full heart from
   floor 2). Brief invulnerability follows each hit. Zero hearts ends the run.
 - Relics (treasure rooms and bosses) stack: Bone Marrow (+1 heart), Spare Mask (+damage), Family
@@ -137,6 +147,42 @@ appears only when copying succeeded.
 Bosses mix three family attacks (rings, aimed spreads, charges, summons, spirals, blinks, slams) and
 speed up below half health.
 
+### Elites
+
+| Family | Elite's extra move |
+| --- | --- |
+| Skeleton | Raises two Rattlers once, when wounded |
+| Mask | Fires a fan of five shots after every blink |
+| Family | Calls two Kin every few seconds (at most four helpers) |
+| Cellular | Splits into three cells instead of two |
+| Asymmetry | Every shot is mirrored into a full X |
+| Hoverer | Rises, then dives at where you stood |
+| Colossus | A charge that hits a wall ends in a shockwave ring |
+| Sparkling | Bursts in a double ring |
+| Hollow | Leaves a harmless decoy when it fades out |
+
+### Rooms
+
+31 hand-made layouts: the 13 original ones (one is the empty room), 9 new ones (asymmetric rocks and pits, lanes, stepping
+stones, and three open arenas used for elite rooms) and one themed layout per family (Skeleton
+ribcage, Mask face, Family dinner table, Cellular cells, Asymmetry crooked line, Hoverer open sky,
+Colossus boulders, Sparkling crystal field, Hollow void rifts). Themed layouts appear twice as often
+on their own family's floor. Every layout is randomly mirrored, door approaches are forced clear, and
+each generated room is checked for connectivity (the sim also checks every layout).
+
+### Music
+
+Every floor has its own looping chiptune, synthesized in code with WebAudio (square/triangle lead and
+bass, noise drums; no samples or files). The Ossuary is a slow harmonic-minor walk, Masquerade Hall a
+3/4 waltz, The Old House warm major, Culture Vats bubbly pentatonic staccato, The Crooked Wing dorian in
+7/8, Cloud Cellar airy lydian, Colossus Quarry heavy slow phrygian, Glimmer Mines sparkly major
+arpeggios and The Hollow sparse whole-tone. Boss rooms play a faster variant a semitone higher with
+driving bass and busier drums. Victory plays a short jingle and death a falling sting. Notes are
+scheduled ahead on the AudioContext clock (a 60 ms timer, 160 ms lookahead). Floors crossfade, and the
+music sits under the sound effects. It starts only after **Enter the dungeon** and stops while
+paused, in a menu or when the tab is hidden (the audio context is suspended then). It follows **Mute**
+and has its own **Music** toggle.
+
 ## How the Friends are chosen
 
 At the start of each run (and on **New cast**), the game samples 120 random token IDs from
@@ -166,21 +212,26 @@ Run from the SDK root. All of these were run for the current version and pass.
 
 - `npx friendsdk check games/binding-of-rarefriend`: game validation.
 - `npx tsc -p games/binding-of-rarefriend/tsconfig.json`: strict typecheck.
-- `node games/binding-of-rarefriend/tests/run-sim.mjs`: checks that signatures are deterministic and
-  evenly spread over 20,000 token IDs. Then a headless bot plays 54 full runs (all nine player families,
-  invulnerable and normal, cycling through all eight signatures and generation bonuses) and 72 more
-  balance runs (every signature with the same nine seeds). It fails on any room the bot cannot clear.
-  Latest result: the invulnerable bot cleared 27/27 runs. The simple normal bot averages floor 2.1–2.9
-  with every signature, so no signature dominates.
+- `node games/binding-of-rarefriend/tests/run-sim.mjs`: checks that all 31 layouts are 13×7 and
+  fully connected, and that 300 generated floors each have an elite room (with no fallback to an
+  empty room). It checks that signatures are deterministic and evenly spread over 20,000 token IDs.
+  Then a headless bot plays 54 full runs (all nine player families, invulnerable and normal, cycling
+  through all eight signatures and generation bonuses) and 72 more balance runs (every signature with
+  the same nine seeds). It fails on any room the bot cannot clear, elite and boss rooms included.
+  Latest result: the invulnerable bot cleared 27/27 runs. The simple normal bot reaches floor 2.0–2.6
+  on average with every signature, and dies mostly to bosses (elites killed it once in 27 runs).
 - `node games/binding-of-rarefriend/tests/browser.mjs`: real SDK runtime in headless Chromium with the
   SDK's mock wallet and RPC fixtures, extended to answer the artwork registry and Multicall3 for many
   IDs (the fixture reports generation 1). Checks desktop, phone landscape and phone portrait for browser
-  errors, the title card, the victory and death screens and the **Copy result** text and button, and
-  takes screenshots.
+  errors, including the music scheduler. It covers the title card, an elite room (arena layout, one
+  elite), the boss **VS card** (the room must stay frozen behind it and a key or tap must skip it), the
+  victory and death screens and the **Copy result** text and button. It takes screenshots
+  (`media/vs.png` comes from it).
 - `node games/binding-of-rarefriend/tests/run-visual.mjs`: renders mid-combat and boss frames for
   several themes.
 - `node games/binding-of-rarefriend/tests/run-demo.mjs`: renders `media/demo.gif` frame by frame
-  (bot at the controls, SDK sample sprites as stand-ins for real Friends) and converts it with ffmpeg.
+  (a floor-2 elite room, then the boss; bot at the controls, SDK sample sprites as stand-ins for real
+  Friends) and converts it with ffmpeg. The GIF is canvas-only, so it has no VS card or music.
   `media/title.png` is the desktop title screenshot from the browser check (fixture Friend #7730).
 
 The stock `npx friendsdk test` fixture only answers artwork reads for sample Friend #7730, so it
@@ -191,7 +242,7 @@ real-wallet playtest.
 ## Credits
 
 Code, level design, rooms, props and sound effects by Fablizio (AI-assisted). All scenery is drawn
-from code and all sounds are synthesized from code. Character artwork: canonical Rare Friends
+from code, and all sounds and music are synthesized from code. Character artwork: canonical Rare Friends
 Generations sprites via the FriendSDK sprite reader (see the SDK `NOTICE.md`). Reward cues come
 from the FriendSDK sound kit. Inspired by the room-based twin-stick roguelite genre. Not affiliated
 with any other game.
