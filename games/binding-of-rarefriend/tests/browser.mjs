@@ -86,6 +86,28 @@ try {
     // Drive the game through test-only engine access: move the player into rooms to see enemies.
     await frameHandle.evaluate(() => new Promise(r => setTimeout(r, 300)));
     await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-play.png`) });
+    // Title card shows the signature and (from the fixture's generation read) the generation bonus.
+    // End screens: reach the engine through React's fiber for this test only (no hook exists in the game build).
+    await frameHandle.evaluate(({ won }) => {
+      const canvas = document.querySelector("canvas");
+      let fiber = canvas[Object.keys(canvas).find(k => k.startsWith("__reactFiber"))];
+      while (fiber && typeof fiber.type !== "function") fiber = fiber.return;
+      const game = fiber.memoizedState.next.memoizedState.current;
+      if (!game) throw new Error("no running game");
+      for (const floor of game.roster.floors) for (const sprites of [...floor.regulars, floor.boss])
+        game.defeated.push({ id: sprites.tokenId, family: sprites.familyId, sprites, boss: sprites === floor.boss });
+      if (won) { game.depth = game.floors - 1; game.state.trapdoor = true; game.player.x = 480; game.player.y = 298; game.player.invuln = 99; }
+      else { game.player.invuln = 0; game.hurtPlayer(99); }
+    }, { won: view.name !== "phone-portrait" });
+    await game.getByRole("button", { name: "Copy result" }).waitFor({ timeout: 5000 });
+    await page.waitForTimeout(700);
+    await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-end.png`) });
+    const shared = await game.getByRole("textbox", { name: /run result/ }).inputValue();
+    assert.match(shared, /^Friend #7730 \(Hoverer, signature: [A-Za-z ]+\) (cleared 4 floors|reached floor \d of 4) and defeated \d+ real Rare Friends in \d+:\d\d — The Binding of RareFriend https:\/\/fablizio\.github\.io\/the-binding-of-rarefriend\/$/);
+    await game.getByRole("button", { name: "Copy result" }).click();
+    await page.waitForTimeout(200);
+    const label = await game.locator(".bor-share button").innerText();
+    console.log(view.name, "share:", JSON.stringify(shared), "button after click:", JSON.stringify(label));
     await page.waitForTimeout(200);
     assert.deepEqual([...new Set([...errors, ...fixture.errors])], [], `${view.name}: browser errors`);
     await context.close();

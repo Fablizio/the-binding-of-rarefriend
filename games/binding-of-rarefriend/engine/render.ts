@@ -242,6 +242,14 @@ export function render(ctx: CanvasRenderingContext2D, game: Game, now: number) {
       ctx.fillStyle = "#ccff00"; ctx.fillRect(item.x - 6, item.y - 8 + bob, 12, 12); ctx.fillStyle = "#000"; ctx.fillRect(item.x - 2, item.y - 4 + bob, 4, 4);
     } else paintHeart(ctx, item.x - 10, item.y - 14 + bob, item.kind === "heart" ? 2 : 1, 3);
   }
+  // Trailblazer embers sit on the floor under everyone.
+  for (const ember of game.embers) {
+    const k = Math.max(0, ember.life / 0.9), size = 4 + Math.round(k * 4);
+    ctx.globalAlpha = 0.35 + k * 0.6;
+    ctx.fillStyle = "#000"; ctx.fillRect(Math.round(ember.x - size / 2) - 1, Math.round(ember.y - size / 2) - 1, size + 2, size + 2);
+    ctx.fillStyle = k > 0.5 ? "#ccff00" : "#ff8a00"; ctx.fillRect(Math.round(ember.x - size / 2), Math.round(ember.y - size / 2), size, size);
+  }
+  ctx.globalAlpha = 1;
   // Depth-sorted actors.
   type Layer = { y: number; draw: () => void };
   const layers: Layer[] = [];
@@ -255,13 +263,32 @@ export function render(ctx: CanvasRenderingContext2D, game: Game, now: number) {
   } });
   for (const familiar of game.familiars) layers.push({ y: familiar.y, draw: () =>
     drawFriend(ctx, game.playerSprites, familiar.x, familiar.y, { facing: p.facing, side: p.side, walking: p.moving, frame }, 2, "#000000", "#ccff00") });
+  if (game.signature.id === "orbit" && game.status === "playing") {
+    const shard = game.orbitPosition();
+    layers.push({ y: shard.y + 20, draw: () => {
+      const spin = game.reducedMotion ? 0 : now / 120;
+      ctx.save(); ctx.translate(shard.x, shard.y); ctx.rotate(spin);
+      ctx.fillStyle = "#000"; ctx.fillRect(-9, -9, 18, 18);
+      ctx.fillStyle = "#ccff00"; ctx.fillRect(-6, -6, 12, 12);
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(-2, -2, 4, 4);
+      ctx.restore();
+    } });
+  }
   layers.sort((a, b) => a.y - b.y).forEach(layer => layer.draw());
   for (const tear of game.tears) {
     ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.beginPath(); ctx.ellipse(tear.x, tear.y + 18, tear.r * 0.8, tear.r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(tear.x, tear.y, tear.r + 2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = tear.friendly ? (game.stats.homing ? "#ccff00" : "#ffffff") : theme.accent;
+    ctx.fillStyle = tear.friendly ? (game.stats.homing || tear.boomer === "back" ? "#ccff00" : "#ffffff") : theme.accent;
     ctx.beginPath(); ctx.arc(tear.x, tear.y, tear.r, 0, Math.PI * 2); ctx.fill();
+    if (tear.big) { ctx.strokeStyle = "#ccff00"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(tear.x, tear.y, tear.r + 5, 0, Math.PI * 2); ctx.stroke(); }
   }
+  // Chain Spark arcs: a jagged pixel bolt between two Friends.
+  for (const zap of game.zaps) {
+    ctx.globalAlpha = Math.min(1, zap.life / 0.1);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 6; ctx.beginPath(); zapPath(ctx, zap.x1, zap.y1, zap.x2, zap.y2); ctx.stroke();
+    ctx.strokeStyle = "#ccff00"; ctx.lineWidth = 3; ctx.beginPath(); zapPath(ctx, zap.x1, zap.y1, zap.x2, zap.y2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
   for (const particle of game.particles) {
     ctx.globalAlpha = Math.max(0, particle.life / particle.max); ctx.fillStyle = particle.color;
     ctx.fillRect(Math.round(particle.x), Math.round(particle.y), particle.size, particle.size);
@@ -277,6 +304,13 @@ export function render(ctx: CanvasRenderingContext2D, game: Game, now: number) {
   ctx.restore();
   paintHud(ctx, game);
   if (game.fade > 0) { ctx.fillStyle = `rgba(0,0,0,${game.fade})`; ctx.fillRect(0, 0, VIEW_W, VIEW_H); }
+}
+
+function zapPath(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l;
+  ctx.moveTo(x1, y1);
+  for (let i = 1; i < 5; i++) { const k = i / 5, off = (i % 2 ? 1 : -1) * 9; ctx.lineTo(x1 + dx * k + nx * off, y1 + dy * k + ny * off); }
+  ctx.lineTo(x2, y2);
 }
 
 function paintHud(ctx: CanvasRenderingContext2D, game: Game) {
@@ -298,13 +332,18 @@ function paintHud(ctx: CanvasRenderingContext2D, game: Game) {
   ctx.fillText(boss ? `BOSS · Friend #${boss.sprites.tokenId} · ${boss.sprites.familyName}`
     : `${FAMILY_NAMES[game.cast.family]} territory · ${game.state.enemies.length ? `${game.state.enemies.length} Friends hostile` : "room clear"}`, VIEW_W / 2, 46);
   paintMinimap(ctx, game);
-  // Relics collected.
-  const bottom = IN_Y + IN_H + WALL + 30;
-  ctx.textAlign = "center"; ctx.font = "12px ui-monospace, monospace"; ctx.fillStyle = "#bdbdbd";
+  // Signature, generation bonus, perk, then relics collected.
+  const bottom = IN_Y + IN_H + WALL + 19;
+  ctx.textAlign = "center"; ctx.font = "bold 13px ui-monospace, monospace";
+  const sig = game.signature, gen = game.genBonus;
+  const parts = [`◆ ${sig.name.toUpperCase()}: ${sig.text}`];
+  if (gen) parts.push(`GEN ${gen.generation}: ${gen.text}`);
+  ctx.fillStyle = "#ccff00"; ctx.fillText(parts.join("  ·  "), VIEW_W / 2, bottom, 900);
+  ctx.font = "12px ui-monospace, monospace"; ctx.fillStyle = "#bdbdbd";
   const relicNames = game.relics.map(id => RELICS.find(r => r.id === id)!.name);
-  ctx.fillText(`${game.perk.name}${relicNames.length ? " · " + relicNames.join(" · ") : ""}`, VIEW_W / 2, bottom, 520);
+  ctx.fillText(`Perk: ${game.perk.name}${relicNames.length ? " · " + relicNames.join(" · ") : ""}`, VIEW_W / 2, bottom + 17, 760);
   if (boss) {
-    const w = 420, x = (VIEW_W - w) / 2, y = bottom + 10;
+    const w = 420, x = (VIEW_W - w) / 2, y = bottom + 24;
     ctx.fillStyle = "#000"; ctx.fillRect(x - 3, y - 3, w + 6, 16);
     ctx.fillStyle = "#3a0d15"; ctx.fillRect(x, y, w, 10);
     ctx.fillStyle = "#e0243f"; ctx.fillRect(x, y, w * Math.max(0, boss.hp / boss.maxHp), 10);

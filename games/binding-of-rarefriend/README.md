@@ -1,5 +1,7 @@
 # The Binding of RareFriend
 
+![Gameplay demo: a Hoverer Friend with the Chain Spark signature clears a room of five Friends, then fights a boss (recorded with SDK sample sprites)](media/demo.gif)
+
 Builder: Fablizio · [GitHub @Fablizio](https://github.com/Fablizio) · [X @FabrizioCottone](https://x.com/FabrizioCottone) · [Telegram @Fablizio](https://t.me/Fablizio) · FriendSDK **v0.1.2** · Rare Friends Vibeathon (Character Spotlight)
 
 A twin-stick, room-by-room dungeon crawler in the spirit of the classic roguelites. **Your verified
@@ -8,6 +10,12 @@ signature perk. **Every enemy and boss is another real Rare Friend** (token ID s
 live from the SDK's pinned artwork registry on Robinhood Chain. Each floor belongs to one of the nine
 Generations families, which sets the floor's look, obstacles and enemy behaviour. Floor 1 is always
 your own family's turf.
+
+No two Friends play the same: on top of the family perk, **each Friend has its own signature ability**,
+derived from its canonical sprite seed and token ID, and a small **generation bonus** read from its
+Generations generation. The run is framed as *the descent of Friend #ID*: the title card puts your Friend
+front and centre, and on victory every Friend you defeated bows to yours ("The crypt remembers Friend
+#ID"). The end screen has a **Copy result** line to share.
 
 ## Run it
 
@@ -69,6 +77,49 @@ freezes whenever the runtime opens its own menus.
 | Sparkling | Every 6th shot bursts in 8 directions |
 | Hollow | Longer invulnerability, faster |
 
+### Your Friend's signature
+
+Every Friend also gets one of eight signature abilities. It is picked by a deterministic hash of the
+Friend's canonical sprite seed and token ID (`engine/signatures.ts`), so the same Friend always has the
+same signature on every device, and the eight are spread evenly across token IDs (about 12.5% each). The
+signature is shown on the title card and in the HUD's bottom line, and it stacks with the family perk
+and with relics (for example Ricochet with piercing Skeleton shots, or Chain Spark with Mask's twin shots).
+
+| Signature | Effect |
+| --- | --- |
+| Ricochet | Shots bounce off walls and rocks once. |
+| Boomerang | Shots fly out, turn around (or turn at a wall) and hit again on the way back. |
+| Orbit Shard | A shard circles you, cutting Friends it touches and blocking enemy shots. |
+| Chain Spark | Each hit arcs to the nearest other Friend (within range) for half damage. |
+| Critical Eye | 12% of hits deal triple damage, with a CRIT flash. |
+| Heart Leech | 4% of kills drop a half heart; each boss drops an extra heart. |
+| Trailblazer | Moving leaves a short trail of pixels that burns Friends standing on it. |
+| Fifth Shot | Every fifth shot is bigger, deals 60% more damage and pierces. |
+
+### Generation bonus
+
+The game reads your own Friend's `generation(tokenId)` once from the Generations contract
+(`0x14C4…181D` on Robinhood Chain), the same value the runtime's eligibility check uses. It is a single
+read of your verified Friend, never a scan. If the read fails or times out, no bonus is shown and the run
+plays normally.
+
+| Generation | Bonus |
+| --- | --- |
+| 1 (rarest) | +1 heart |
+| 2 | +15% damage |
+| 3 | +10% fire rate |
+| 4 | +10% speed |
+| 5 | +15% shot range |
+| 6 and later | +5% damage |
+
+### Sharing a run
+
+The victory and death screens show a one-line result, for example *"Friend #25090 (Hoverer, signature:
+Ricochet) cleared 4 floors and defeated 23 real Rare Friends in 12:31 — The Binding of RareFriend
+https://fablizio.github.io/the-binding-of-rarefriend/"*. **Copy result** tries the clipboard (the sandbox
+may refuse it); the text is always shown in a selectable box so it can be copied by hand. "Copied ✓"
+appears only when copying succeeded.
+
 ### Floors and enemies
 
 | Family | Floor | Enemy behaviour |
@@ -92,8 +143,8 @@ At the start of each run (and on **New cast**), the game samples 120 random toke
 1–100,000, the range where hardwired Generations Friends live, and reads each ID's family from the
 SDK's pinned sprite registry (`familyOf`). It then groups them into floors and reads `seedOf` and the
 64 canonical frames (`frames`) of up to six Friends per floor. Reads go through one Multicall3 call per step, with a fallback
-to individual JSON-RPC batched reads. Only the public **artwork registry** is read. The Generations
-collection is never scanned, no owners are looked up, and nothing depends on who holds those Friends.
+to individual JSON-RPC batched reads. Only the public **artwork registry** is read for other Friends (plus one `generation` read of your
+own Friend for its bonus). The Generations collection is never scanned, no owners are looked up, and nothing depends on who holds those Friends.
 Enemy art is the unmodified canonical 16×16 mask at integer scale with a family-coloured halo. The
 player keeps the canonical black mask and white halo.
 
@@ -111,15 +162,26 @@ custom integration beyond the v0.1.2 bridge, which has no persistence, upgrade o
 
 ## Checks
 
+Run from the SDK root. All of these were run for the current version and pass.
+
 - `npx friendsdk check games/binding-of-rarefriend`: game validation.
 - `npx tsc -p games/binding-of-rarefriend/tsconfig.json`: strict typecheck.
-- `node games/binding-of-rarefriend/tests/run-sim.mjs`: headless bot plays 54 full runs (all nine
-  player families, invulnerable and normal) and flags any room it cannot clear.
+- `node games/binding-of-rarefriend/tests/run-sim.mjs`: checks that signatures are deterministic and
+  evenly spread over 20,000 token IDs. Then a headless bot plays 54 full runs (all nine player families,
+  invulnerable and normal, cycling through all eight signatures and generation bonuses) and 72 more
+  balance runs (every signature with the same nine seeds). It fails on any room the bot cannot clear.
+  Latest result: the invulnerable bot cleared 27/27 runs. The simple normal bot averages floor 2.1–2.9
+  with every signature, so no signature dominates.
 - `node games/binding-of-rarefriend/tests/browser.mjs`: real SDK runtime in headless Chromium with the
   SDK's mock wallet and RPC fixtures, extended to answer the artwork registry and Multicall3 for many
-  IDs. Checks desktop, phone landscape and phone portrait for browser errors and takes screenshots.
+  IDs (the fixture reports generation 1). Checks desktop, phone landscape and phone portrait for browser
+  errors, the title card, the victory and death screens and the **Copy result** text and button, and
+  takes screenshots.
 - `node games/binding-of-rarefriend/tests/run-visual.mjs`: renders mid-combat and boss frames for
   several themes.
+- `node games/binding-of-rarefriend/tests/run-demo.mjs`: renders `media/demo.gif` frame by frame
+  (bot at the controls, SDK sample sprites as stand-ins for real Friends) and converts it with ffmpeg.
+  `media/title.png` is the desktop title screenshot from the browser check (fixture Friend #7730).
 
 The stock `npx friendsdk test` fixture only answers artwork reads for sample Friend #7730, so it
 rejects this game's roster reads by design. The custom browser check above covers that path.

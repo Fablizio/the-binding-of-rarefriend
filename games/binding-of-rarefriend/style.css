@@ -29,10 +29,19 @@ html, body, #root { margin: 0; height: 100%; background: #070708; overflow: hidd
 .bor-logo em { display: block; font-style: normal; color: #ccff00; font-size: 1.3em; }
 .bor-title { gap: .7em; }
 .bor-hero { display: flex; align-items: center; gap: 1.2em; padding: .6em 1.2em; border: 2px solid #333; background: #d8d8d0; color: #000; text-align: left; }
-.bor-hero .bor-portrait { width: 9vw; height: 9vw; min-width: 48px; min-height: 48px; }
+.bor-hero .bor-portrait { width: 13vw; height: 13vw; min-width: 64px; min-height: 64px; }
 .bor-hero div { display: flex; flex-direction: column; gap: .15em; max-width: 30em; }
 .bor-hero strong { font-size: 1.3em; }
 .bor-perk b { color: #000; background: #ccff00; padding: 0 .3em; }
+.bor-descent { margin: 0; color: #ccff00; font-weight: bold; font-size: 1.2em; letter-spacing: .04em; text-shadow: 2px 2px 0 #000; }
+.bor-intro { margin: 0; color: #d0d0d0; font-style: italic; }
+.bor-end.won > .bor-portrait { width: 10vw; height: 10vw; min-width: 54px; min-height: 54px; }
+.bor-gallery.bow li { animation: bor-bow 2.6s ease-in-out infinite; transform-origin: 50% 100%; }
+.bor-gallery.bow.still li { animation: none; transform: translateY(10%) scaleY(.88); }
+.bor-share { display: flex; gap: .5em; width: min(48em, 94%); align-items: stretch; }
+.bor-share textarea { flex: 1; font: inherit; font-size: .82em; line-height: 1.3; resize: none; padding: .4em .6em; background: #111; color: #f2f2f2;
+  border: 2px solid #444; user-select: text; -webkit-user-select: text; }
+.bor-share textarea:focus-visible { outline: 3px solid #ccff00; outline-offset: 1px; }
 .bor-floors { display: flex; gap: .6em; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; justify-content: center; }
 .bor-floors li { display: flex; flex-direction: column; padding: .4em .8em; border: 2px solid; border-left-width: 6px; background: rgba(0,0,0,.5); text-align: left; min-width: 9em; }
 .bor-floors small { color: #9a9a9a; }
@@ -51,14 +60,17 @@ html, body, #root { margin: 0; height: 100%; background: #070708; overflow: hidd
 
 @keyframes bor-in { from { opacity: 0; transform: translate(-50%, -30%); } }
 @keyframes bor-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .bor-toast, .bor-boss { animation: none; } .bor-spinner { animation-duration: 3s; } }
+@keyframes bor-bow { 0%, 55%, 100% { transform: none; } 20%, 40% { transform: translateY(14%) scaleY(.8); } }
+@media (prefers-reduced-motion: reduce) { .bor-toast, .bor-boss, .bor-gallery.bow li { animation: none; } .bor-spinner { animation-duration: 3s; } }
 @media (max-height: 460px) {
   .bor-logo { font-size: 1.8em; }
   .bor-logo em { display: inline; font-size: 1em; }
   .bor-screen { gap: .35em; padding: 2% 4% 12%; justify-content: flex-start; }
-  .bor-hint, .bor-floors span, .bor-floors small { display: none; }
+  .bor-hint, .bor-floors span, .bor-floors small, .bor-intro { display: none; }
+  .bor-descent { font-size: 1em; }
   .bor-hero { padding: .3em .8em; }
-  .bor-hero .bor-portrait { width: 6.5vw; height: 6.5vw; min-width: 36px; min-height: 36px; }
+  .bor-hero .bor-portrait { width: 9vw; height: 9vw; min-width: 44px; min-height: 44px; }
+  .bor-end.won > .bor-portrait { width: 7vw; height: 7vw; min-width: 36px; min-height: 36px; }
   .bor-floors li { min-width: 0; padding: .2em .6em; }
   .bor-gallery .bor-portrait { min-width: 20px; min-height: 20px; }
 }

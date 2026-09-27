@@ -4,6 +4,7 @@ import { COLS, ROWS, OPPOSITE, STEP, generateFloor, key, type Dir, type Floor, t
 import { createRng, type Rng } from "./rng";
 import type { Roster } from "./roster";
 import { BOSS_ATTACKS, PERKS, RELICS, THEMES, type BossAttack, type FamilyId, type RelicId } from "./themes";
+import { generationBonus, signatureById, signatureFor, type GenerationBonus, type Signature, type SignatureId } from "./signatures";
 import type { Sfx } from "./audio";
 
 export const VIEW_W = 960, VIEW_H = 640;
@@ -19,6 +20,12 @@ export type Tear = {
   friendly: boolean; pierce: boolean; split: boolean; homing: boolean; wobble: number; hit: Set<number>;
   /** Shots fired from above a rock (a flying shooter) ignore rocks until they reach open floor. */
   airborne?: boolean;
+  /** Ricochet signature: wall and rock bounces left. */
+  bounces?: number;
+  /** Boomerang signature: outbound until `turnAt` seconds, then back to the player. */
+  boomer?: "out" | "back"; turnAt?: number;
+  /** Fifth Shot signature: an empowered shot (drawn larger, with a ring). */
+  big?: boolean;
 };
 export type EnemyKind = "rattler" | "mimic" | "kin" | "cell" | "glitch" | "drifter" | "brute" | "glint" | "shade" | "boss";
 const KIND_BY_FAMILY: readonly EnemyKind[] = ["rattler", "mimic", "kin", "cell", "glitch", "drifter", "brute", "glint", "shade"];
@@ -30,6 +37,8 @@ export type Enemy = {
   flying: boolean; boss: boolean; elite: boolean; child: boolean; minion: boolean;
   state: string; t: number; t2: number; shots: number; alpha: number; flash: number; spawn: number;
   attack: number; lift: number; dir: Vec;
+  /** Per-enemy cooldowns for the Orbit Shard and Trailblazer signatures. */
+  orbitCd: number; emberCd: number;
   facing: SpriteFacing; side: "left" | "right"; moving: boolean;
 };
 export type PickupKind = "heart" | "half" | "spark";
@@ -39,6 +48,15 @@ export type FloatText = { x: number; y: number; text: string; life: number; colo
 export type Pedestal = { x: number; y: number; relic: RelicId | "heart"; taken: boolean };
 export type Familiar = { x: number; y: number; cooldown: number };
 export type Defeated = { id: bigint; family: FamilyId; sprites: GenerationSprites; boss: boolean };
+export type Ember = { x: number; y: number; life: number };
+export type Zap = { x1: number; y1: number; x2: number; y2: number; life: number };
+export type GameOptions = {
+  /** The player's Generations generation (1 = rarest). Null or undefined when the read failed: no bonus. */
+  generation?: number | null;
+  /** Test/demo override; normally derived from the player's sprite seed and token ID. */
+  signature?: SignatureId;
+};
+export const ORBIT_RADIUS = 54;
 
 export type PlayerStats = {
   maxHp: number; damage: number; fireDelay: number; shotSpeed: number; range: number; speed: number; tearR: number;
@@ -94,12 +112,19 @@ export class Game {
   reducedMotion = false;
   touch = false;
   events: GameEvent[] = [];
+  readonly signature: Signature;
+  readonly genBonus: GenerationBonus | null;
+  orbitAngle = 0;
+  embers: Ember[] = [];
+  zaps: Zap[] = [];
   private uid = 1;
   private flow: number[][] = [];
   private flowKey = "";
 
-  constructor(readonly playerSprites: GenerationSprites, readonly playerFamily: FamilyId, readonly roster: Roster, seed: number) {
+  constructor(readonly playerSprites: GenerationSprites, readonly playerFamily: FamilyId, readonly roster: Roster, seed: number, options: GameOptions = {}) {
     this.rng = createRng(seed);
+    this.signature = options.signature ? signatureById(options.signature) : signatureFor(playerSprites);
+    this.genBonus = generationBonus(options.generation);
     this.stats = {
       maxHp: 6, damage: 3.5, fireDelay: 0.36, shotSpeed: 430, range: 0.72, speed: 215, tearR: 7,
       pierce: false, twin: false, split: false, wobble: false, flying: false, burst: false, homing: false, invuln: 1, familiars: 0,
@@ -115,6 +140,16 @@ export class Game {
       case 6: s.maxHp = 8; s.tearR = 11; s.damage = 4.6; s.speed = 185; s.fireDelay = 0.44; break;
       case 7: s.burst = true; break;
       case 8: s.invuln = 1.8; s.speed = 240; break;
+    }
+    // Generation bonus (1 = rarest), applied on top of the family perk.
+    switch (this.genBonus?.generation) {
+      case undefined: break;
+      case 1: s.maxHp += 2; break;
+      case 2: s.damage *= 1.15; break;
+      case 3: s.fireDelay /= 1.1; break;
+      case 4: s.speed *= 1.1; break;
+      case 5: s.range *= 1.15; break;
+      default: s.damage *= 1.05; break;
     }
     this.player.hp = s.maxHp;
     this.syncFamiliars();
@@ -169,7 +204,7 @@ export class Game {
       const next = this.floor.rooms.get(key(room.gx + STEP[d][0], room.gy + STEP[d][1]));
       if (next) next.seen = true;
     }
-    this.tears = [];
+    this.tears = []; this.embers = []; this.zaps = [];
     if (from) {
       // Arrive just inside the door on the side we came through.
       const [dx, dy] = DOOR_POS[from];
@@ -234,7 +269,7 @@ export class Game {
       uid: this.uid++, kind, family, sprites, x, y, vx: 0, vy: 0, r, hp, maxHp: hp, speed, scale,
       flying: kind === "drifter" || (boss && family === 5), boss, elite, child: false, minion,
       state: "idle", t: this.rng.range(0.4, 1.4), t2: 0, shots: 0, alpha: 1, flash: 0, spawn: 0.5, attack: 0, lift: 0,
-      dir: { x: 0, y: 0 }, facing: "down", side: "right", moving: false,
+      dir: { x: 0, y: 0 }, orbitCd: 0, emberCd: 0, facing: "down", side: "right", moving: false,
     };
   }
 
@@ -377,6 +412,7 @@ export class Game {
     this.updatePlayer(dt, input);
     this.updateFamiliars(dt);
     this.updateEnemies(dt);
+    this.updateSignature(dt);
     this.updateTears(dt);
     this.updatePickups(dt);
     this.updateEffects(dt);
@@ -424,17 +460,24 @@ export class Game {
     return {
       x, y, vx: dir.x * s.shotSpeed, vy: dir.y * s.shotSpeed, life: s.range, age: 0, r, dmg, friendly: true,
       pierce: s.pierce, split: s.split, homing: s.homing, wobble: s.wobble ? this.rng.range(0, Math.PI * 2) : -1, hit: new Set(),
+      bounces: this.signature.id === "ricochet" ? 1 : 0,
     };
   }
 
   private fire(dir: Vec) {
-    const p = this.player, s = this.stats;
+    const p = this.player, s = this.stats, signature = this.signature.id;
     const ox = p.x + dir.x * 10, oy = p.y - 24 + dir.y * 10;
-    // Inherit a little of the player's motion, like the classics.
+    const empowered = signature === "fifth" && (p.shots + 1) % 5 === 0;
+    const main = (x: number, y: number) => {
+      const tear = this.playerTear(x, y, dir, empowered ? s.damage * 1.6 : s.damage, empowered ? s.tearR * 1.6 : s.tearR);
+      if (empowered) { tear.pierce = true; tear.big = true; }
+      if (signature === "boomerang") { tear.boomer = "out"; tear.turnAt = s.range * 0.55; tear.life = s.range * 2.2; }
+      return tear;
+    };
     if (s.twin) {
       const px = -dir.y * 9, py = dir.x * 9;
-      this.tears.push(this.playerTear(ox + px, oy + py, dir), this.playerTear(ox - px, oy - py, dir));
-    } else this.tears.push(this.playerTear(ox, oy, dir));
+      this.tears.push(main(ox + px, oy + py), main(ox - px, oy - py));
+    } else this.tears.push(main(ox, oy));
     p.shots++;
     if (s.burst && p.shots % 6 === 0) {
       for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; this.tears.push(this.playerTear(p.x, p.y - 24, { x: Math.cos(a), y: Math.sin(a) }, s.damage * 0.6, 6)); }
@@ -685,7 +728,7 @@ export class Game {
   }
 
   private damageEnemy(e: Enemy, amount: number) {
-    if (e.alpha < 0.5 || e.spawn > 0) return false;
+    if (e.alpha < 0.5 || e.spawn > 0 || e.hp <= 0 || !this.state.enemies.includes(e)) return false;
     e.hp -= amount; e.flash = 0.1;
     this.sfx("hit");
     if (e.hp > 0) return true;
@@ -715,6 +758,7 @@ export class Game {
       state.enemies = [];
       this.tears = this.tears.filter(tear => tear.friendly);
       state.pickups.push({ x: CX - 90, y: CY + 60, kind: "heart", t: 0 });
+      if (this.signature.id === "leech") state.pickups.push({ ...this.openSpot({ x: CX - 150, y: CY + 60 }), kind: "heart", t: 0 });
       state.pedestal = { x: CX + 110, y: CY, relic: this.rollRelic(), taken: false };
       state.trapdoor = true;
       this.emit({ type: "toast", title: this.depth === this.floors - 1 ? "The last keeper falls" : "Boss defeated", text: this.depth === this.floors - 1 ? "Step into the light to escape." : "Drop down the hatch to descend." });
@@ -723,13 +767,75 @@ export class Game {
     const roll = this.rng.next(), spot = this.openSpot(e);
     if (roll < 0.06) state.pickups.push({ ...spot, kind: "half", t: 0 });
     else if (roll < 0.24) state.pickups.push({ ...spot, kind: "spark", t: 0 });
+    if (this.signature.id === "leech" && this.rng.chance(0.04)) {
+      state.pickups.push({ ...this.openSpot({ x: spot.x + 18, y: spot.y }), kind: "half", t: 0 });
+      this.texts.push({ x: spot.x, y: spot.y - 30, text: "leech", life: 0.9, color: "#ff6b6b" });
+    }
+  }
+
+  /** Passive signature effects: the orbiting shard, the ember trail and chain-spark fades. */
+  private updateSignature(dt: number) {
+    const p = this.player, s = this.stats, enemies = this.state.enemies, id = this.signature.id;
+    for (const e of enemies) { e.orbitCd -= dt; e.emberCd -= dt; }
+    for (const zap of this.zaps) zap.life -= dt;
+    this.zaps = this.zaps.filter(zap => zap.life > 0);
+    if (id === "orbit") {
+      this.orbitAngle = (this.orbitAngle + dt * 3.4) % (Math.PI * 2);
+      const shard = this.orbitPosition();
+      for (const e of [...enemies]) {
+        if (e.orbitCd > 0 || Math.hypot(shard.x - e.x, shard.y - (e.y - e.r - e.lift)) > e.r + 10) continue;
+        if (this.damageEnemy(e, Math.max(1.5, s.damage * 0.6))) e.orbitCd = 0.3;
+      }
+      let blocked = false;
+      for (const tear of this.tears) if (!tear.friendly && Math.hypot(tear.x - shard.x, tear.y - shard.y) < tear.r + 9) { tear.life = -1; this.splash(tear); blocked = true; }
+      if (blocked) this.tears = this.tears.filter(tear => tear.life > 0);
+    }
+    if (id === "trail") {
+      for (const ember of this.embers) ember.life -= dt;
+      this.embers = this.embers.filter(ember => ember.life > 0);
+      const last = this.embers[this.embers.length - 1];
+      if (p.moving && (!last || Math.hypot(last.x - p.x, last.y - p.y) > 14)) {
+        this.embers.push({ x: p.x + this.rng.range(-4, 4), y: p.y + this.rng.range(-3, 3), life: 0.9 });
+        if (this.embers.length > 40) this.embers.shift();
+      }
+      for (const e of [...enemies]) {
+        if (e.emberCd > 0 || e.lift > 10) continue;
+        if (!this.embers.some(ember => Math.hypot(ember.x - e.x, ember.y - e.y) < e.r + 8)) continue;
+        if (this.damageEnemy(e, Math.max(1, s.damage * 0.35))) e.emberCd = 0.3;
+      }
+    }
+  }
+
+  orbitPosition(): Vec {
+    return { x: this.player.x + Math.cos(this.orbitAngle) * ORBIT_RADIUS, y: this.player.y - 20 + Math.sin(this.orbitAngle) * ORBIT_RADIUS * 0.8 };
+  }
+
+  /** Chain Spark: arc half of a hit's damage to the nearest other visible Friend. */
+  private chainFrom(e: Enemy, amount: number) {
+    let best: Enemy | null = null, bestD = 200;
+    for (const other of this.state.enemies) {
+      if (other === e || other.alpha < 0.5 || other.spawn > 0) continue;
+      const d = dist(other, e);
+      if (d < bestD) { best = other; bestD = d; }
+    }
+    if (!best) return;
+    this.zaps.push({ x1: e.x, y1: e.y - e.r - e.lift, x2: best.x, y2: best.y - best.r - best.lift, life: 0.16 });
+    this.damageEnemy(best, amount);
   }
 
   private updateTears(dt: number) {
-    const p = this.player, enemies = this.state.enemies, spawned: Tear[] = [];
+    const p = this.player, enemies = this.state.enemies, spawned: Tear[] = [], signature = this.signature.id;
     for (const tear of this.tears) {
       tear.age += dt;
-      if (tear.homing && tear.friendly) {
+      if (tear.boomer === "out" && tear.age >= (tear.turnAt ?? 0)) { tear.boomer = "back"; tear.hit.clear(); }
+      if (tear.boomer === "back") {
+        // Return to the player's shoulder, over rocks; caught shots vanish quietly.
+        const want = norm(p.x - tear.x, p.y - 24 - tear.y), speed = Math.max(260, Math.hypot(tear.vx, tear.vy));
+        const k = Math.min(1, dt * 9);
+        const dir = norm(tear.vx / speed * (1 - k) + want.x * k, tear.vy / speed * (1 - k) + want.y * k);
+        tear.vx = dir.x * speed; tear.vy = dir.y * speed; tear.airborne = true;
+        if (Math.hypot(p.x - tear.x, p.y - 24 - tear.y) < p.r + 6) { tear.life = -1; continue; }
+      } else if (tear.homing && tear.friendly) {
         let best: Enemy | null = null, bestD = 220;
         for (const e of enemies) { const d = dist(e, tear); if (d < bestD && e.alpha > 0.5) { best = e; bestD = d; } }
         if (best) {
@@ -739,6 +845,7 @@ export class Game {
           tear.vx = dir.x * speed; tear.vy = dir.y * speed;
         }
       }
+      const px0 = tear.x, py0 = tear.y;
       let x = tear.x + tear.vx * dt, y = tear.y + tear.vy * dt;
       if (tear.wobble >= 0) {
         const speed = Math.hypot(tear.vx, tear.vy) || 1, side = Math.cos(tear.age * 16 + tear.wobble) * 120 * dt;
@@ -751,14 +858,21 @@ export class Game {
           if (tear.hit.has(e.uid)) continue;
           const cy = e.y - e.r - e.lift;
           if (Math.hypot(tear.x - e.x, tear.y - cy) > e.r + tear.r + 2) continue;
-          if (!this.damageEnemy(e, tear.dmg)) continue;
+          const crit = signature === "crit" && this.rng.chance(0.12);
+          if (!this.damageEnemy(e, crit ? tear.dmg * 3 : tear.dmg)) continue;
           tear.hit.add(e.uid);
+          if (crit) {
+            this.texts.push({ x: e.x, y: cy - e.r - 14, text: "CRIT", life: 0.7, color: "#ffe45c" });
+            this.burst(tear.x, tear.y, "#ffe45c", 10);
+          }
+          if (signature === "chain") this.chainFrom(e, tear.dmg * 0.5);
           const kb = e.boss ? 0 : e.kind === "brute" ? 4 : 10, dir = norm(tear.vx, tear.vy);
           if (kb && e.hp > 0) this.move(e, dir.x * kb, dir.y * kb, e.r, e.flying, false);
           if (tear.split) {
             const a = Math.atan2(tear.vy, tear.vx), speed = Math.hypot(tear.vx, tear.vy);
             for (const offset of [-0.7, 0.7]) spawned.push({ ...tear, vx: Math.cos(a + offset) * speed, vy: Math.sin(a + offset) * speed,
-              age: 0, life: 0.35, r: Math.max(4, tear.r * 0.6), dmg: tear.dmg * 0.5, split: false, pierce: false, hit: new Set([e.uid]) });
+              age: 0, life: 0.35, r: Math.max(4, tear.r * 0.6), dmg: tear.dmg * 0.5, split: false, pierce: false, hit: new Set([e.uid]),
+              boomer: undefined, big: false, bounces: 0 });
           }
           if (!tear.pierce) { tear.life = -1; this.splash(tear); break; }
         }
@@ -769,9 +883,26 @@ export class Game {
       if (tear.life < 0) continue;
       if (tear.age < dt * 1.5) tear.airborne = this.tearBlocked(tear.x, tear.y + 20);
       const blocked = this.tearBlocked(tear.x, tear.y + 20);
-      if (!blocked) tear.airborne = false;
+      if (!blocked && tear.boomer !== "back") tear.airborne = false;
       const outside = tear.x < IN_X || tear.x > IN_X + IN_W || tear.y < IN_Y - 24 || tear.y > IN_Y + IN_H;
-      if (tear.age >= tear.life || outside || (blocked && !tear.airborne)) { tear.life = -1; this.splash(tear); }
+      const wall = outside || (blocked && !tear.airborne);
+      if (wall && tear.age < tear.life && tear.boomer === "out") {
+        // Boomerang: a wall turns the shot around instead of breaking it.
+        tear.x = px0; tear.y = py0; tear.boomer = "back"; tear.hit.clear();
+        continue;
+      }
+      if (wall && tear.age < tear.life && (tear.bounces ?? 0) > 0) {
+        // Ricochet: reflect off whichever axis hit the wall or rock, once.
+        const hitX = this.tearBlocked(tear.x, py0 + 20) || tear.x < IN_X || tear.x > IN_X + IN_W;
+        const hitY = this.tearBlocked(px0, tear.y + 20) || tear.y < IN_Y - 24 || tear.y > IN_Y + IN_H;
+        if (hitX) tear.vx = -tear.vx;
+        if (hitY) tear.vy = -tear.vy;
+        if (!hitX && !hitY) { tear.vx = -tear.vx; tear.vy = -tear.vy; }
+        tear.x = px0; tear.y = py0; tear.bounces = (tear.bounces ?? 1) - 1; tear.life += 0.25; tear.hit.clear();
+        this.splash(tear);
+        continue;
+      }
+      if (tear.age >= tear.life || wall) { tear.life = -1; this.splash(tear); }
     }
     this.tears = this.tears.filter(tear => tear.life > 0).concat(spawned);
   }

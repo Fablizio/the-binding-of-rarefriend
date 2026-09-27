@@ -1,10 +1,11 @@
 // Headless engine check: a bot plays full runs (no DOM, no network). Run: node games/binding-of-rarefriend/tests/run-sim.mjs
 import { decodeGenerationSprites, type GenerationSprites } from "../../../src/generation-sprites";
 import { sampleFriendSprites } from "../../../examples/fishing/sample-sprites";
-import { Game, CX, CY, DOOR_POS, IN_X, IN_Y, TILE, type Input } from "../engine/game";
+import { Game, CX, CY, DOOR_POS, IN_X, IN_Y, TILE, type GameOptions, type Input } from "../engine/game";
 import { COLS, ROWS, STEP, OPPOSITE, key, type Dir, type Room } from "../engine/dungeon";
 import type { Roster } from "../engine/roster";
 import type { FamilyId } from "../engine/themes";
+export { SIGNATURES, signatureFor, generationBonus } from "../engine/signatures";
 
 const base = [sampleFriendSprites(7730n)!, sampleFriendSprites(3412n)!];
 export const fakeSprites = (id: number, family: number): GenerationSprites => decodeGenerationSprites(BigInt(id), family, id, base[id % 2].frames);
@@ -34,7 +35,9 @@ function tilePath(game: Game, from: { x: number; y: number }, to: { x: number; y
   const next = path[0];
   if (!next) return to;
   const [nx, ny] = next.split(",").map(Number);
-  return path.length === 1 ? to : { x: IN_X + nx * TILE + TILE / 2, y: IN_Y + ny * TILE + TILE / 2 };
+  // Step to the next tile's centre, then go straight for the goal once inside its tile: a goal near a pit's
+  // edge is unreachable in a straight line from a neighbouring tile.
+  return { x: IN_X + nx * TILE + TILE / 2, y: IN_Y + ny * TILE + TILE / 2 };
 }
 
 function nextDoor(game: Game): Dir | null {
@@ -56,6 +59,17 @@ function nextDoor(game: Game): Dir | null {
   return dir;
 }
 
+/** Rocks (not pits) stop shots: walk around them when one sits between the bot and its target. */
+function clearShot(game: Game, from: { x: number; y: number }, to: { x: number; y: number }) {
+  const steps = Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / 10);
+  for (let i = 1; i < steps; i++) {
+    const x = from.x + (to.x - from.x) * i / steps, y = from.y + (to.y - from.y) * i / steps;
+    const tx = Math.floor((x - IN_X) / TILE), ty = Math.floor((y - IN_Y) / TILE);
+    if (game.room.tiles[ty]?.[tx] === 1) return false;
+  }
+  return true;
+}
+
 export function botInput(game: Game, input: Input) {
     const p = game.player, enemies = game.state.enemies.filter(e => e.alpha > 0.5);
     input.move = null; input.aim = null;
@@ -66,7 +80,7 @@ export function botInput(game: Game, input: Input) {
       input.aim = { x: dx / l, y: dy / l };
       // keep medium distance
       const d = Math.hypot(e.x - p.x, e.y - p.y);
-      target = d > 200 ? e : d < 130 ? { x: p.x - (e.x - p.x), y: p.y - (e.y - p.y) } : null;
+      target = d > 200 || !clearShot(game, { x: p.x, y: p.y - 4 }, e) ? e : d < 130 ? { x: p.x - (e.x - p.x), y: p.y - (e.y - p.y) } : null;
       if (target) target = { x: Math.max(IN_X + 20, Math.min(IN_X + 700, target.x)), y: Math.max(IN_Y + 20, Math.min(IN_Y + 370, target.y)) };
     } else {
       const ped = game.state.pedestal;
@@ -87,8 +101,8 @@ export function botInput(game: Game, input: Input) {
     return enemies;
 }
 
-export function run(seed: number, family: FamilyId, families: FamilyId[], god: boolean, onTick?: (game: Game, t: number) => boolean | void) {
-  const game = new Game(fakeSprites(7730, family), family, fakeRoster(families), seed);
+export function run(seed: number, family: FamilyId, families: FamilyId[], god: boolean, onTick?: (game: Game, t: number) => boolean | void, options: GameOptions = {}) {
+  const game = new Game(fakeSprites(7730, family), family, fakeRoster(families), seed, options);
   const input: Input = { keys: new Set(), move: null, aim: null };
   const dt = 1 / 60;
   let t = 0, stuck = 0, last = { x: 0, y: 0 }, lastRoom = game.room, roomTime = 0;
@@ -106,5 +120,6 @@ export function run(seed: number, family: FamilyId, families: FamilyId[], god: b
     last = { x: p.x, y: p.y };
     if (stuck > 8 || roomTime > 120) { log.push(`STUCK in ${game.room.kind} room at ${p.x.toFixed(0)},${p.y.toFixed(0)} enemies=${game.state.enemies.map(e => `${e.kind}:${e.state}:a${e.alpha.toFixed(1)}:hp${e.hp.toFixed(1)}@${e.x.toFixed(0)},${e.y.toFixed(0)}`).join(' ')}`); break; }
   }
-  return { status: game.status, depth: game.depth, time: t, kills: game.kills, hp: game.player.hp, relics: game.relics, log };
+  return { status: game.status, depth: game.depth, time: t, kills: game.kills, defeated: game.defeated.length, hp: game.player.hp, relics: game.relics,
+    signature: game.signature.id, generation: game.genBonus?.generation ?? null, log };
 }

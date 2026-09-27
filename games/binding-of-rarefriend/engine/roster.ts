@@ -10,6 +10,7 @@ import { createPublicClient, http, type Address } from "viem";
 import {
   FAMILIES_REGISTRY_ABI, GENERATION_SPRITE_MANIFEST as M, decodeGenerationSprites, type GenerationSprites,
 } from "@rarefriends/friendsdk/sprites";
+import { GENERATION_ELIGIBILITY_ABI } from "@rarefriends/friendsdk/identity";
 import type { Rng } from "./rng";
 import type { FamilyId } from "./themes";
 
@@ -120,4 +121,20 @@ export async function loadRoster(rng: Rng, playerId: bigint, playerFamily: Famil
     return { family, boss, regulars: cast.slice(0, -1) };
   });
   return { floors, sampled: sample.length };
+}
+
+/**
+ * The player's own Friend's generation (1 = rarest), read once from the Generations contract. This is a
+ * single read of the verified Friend, never a scan. Any failure or odd value returns null: no bonus, and
+ * play is never blocked by it (ownership was already verified by the SDK runtime).
+ */
+export async function readGeneration(tokenId: bigint, timeoutMs = 8000): Promise<number | null> {
+  try {
+    const read = rpc().readContract({ address: M.generations, abi: GENERATION_ELIGIBILITY_ABI, functionName: "generation", args: [tokenId] });
+    const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs));
+    const value = await Promise.race([read, timeout]);
+    if (value === null) return null;
+    const generation = Number(value);
+    return Number.isInteger(generation) && generation >= 1 && generation <= 255 ? generation : null;
+  } catch { return null; }
 }

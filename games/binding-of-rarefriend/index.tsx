@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameComponentProps } from "@rarefriends/friendsdk/runtime";
 import { GameMenu } from "@rarefriends/friendsdk/frame";
 import { createFriendReader, type GenerationSprites } from "@rarefriends/friendsdk/sprites";
@@ -8,16 +8,18 @@ import "@rarefriends/friendsdk/frame.css";
 import "./style.css";
 import { Game, VIEW_H, VIEW_W, type Defeated, type Input, type Vec } from "./engine/game";
 import { render } from "./engine/render";
-import { loadRoster, type Roster } from "./engine/roster";
+import { loadRoster, readGeneration, type Roster } from "./engine/roster";
 import { randomSeed, createRng } from "./engine/rng";
 import { Audio } from "./engine/audio";
 import { frameCanvas } from "./engine/sprites";
 import { FAMILY_NAMES, PERKS, THEMES, type FamilyId } from "./engine/themes";
+import { generationBonus, signatureFor } from "./engine/signatures";
 
 type Phase = "loading" | "error" | "title" | "playing" | "dead" | "won";
 type Stick = { id: number; origin: Vec; at: Vec };
 const MOVE_KEYS = new Set(["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"]);
 const STICK = 70;
+const PREVIEW_URL = "https://fablizio.github.io/the-binding-of-rarefriend/";
 
 /** A canonical Friend portrait drawn from its on-chain sprite. */
 function Portrait({ sprites, scale = 4, halo = "#ffffff", label }: { sprites: GenerationSprites; scale?: number; halo?: string; label: string }) {
@@ -52,7 +54,10 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
   const [reducedMotion, setReducedMotion] = useState(false);
   const [toast, setToast] = useState<{ title: string; text: string; key: number } | null>(null);
   const [bossBanner, setBossBanner] = useState<{ id: bigint; family: string; sprites: GenerationSprites; key: number } | null>(null);
-  const [summary, setSummary] = useState<{ depth: number; kills: number; sparks: number; time: number; defeated: Defeated[] } | null>(null);
+  const [summary, setSummary] = useState<{ depth: number; kills: number; sparks: number; time: number; defeated: Defeated[]; floors: number } | null>(null);
+  const [generation, setGeneration] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
+  const shareRef = useRef<HTMLTextAreaElement>(null);
   const [revision, setRevision] = useState(0);
   const [touch, setTouch] = useState(false);
   const live = useRef({ paused, menu, phase, reducedMotion });
@@ -79,8 +84,10 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
   // Load the session, the player's canonical artwork and a fresh cast of real Friends.
   useEffect(() => {
     let cancelled = false;
-    gameRef.current = null; setRoster(null); setPhase("loading"); setMenu(null); setSummary(null);
+    gameRef.current = null; setRoster(null); setPhase("loading"); setMenu(null); setSummary(null); setGeneration(null);
     setStatus("Verifying your Friend and summoning the dungeon…");
+    // Your own Friend's generation: one read, never blocking. A failed read means no generation bonus.
+    const generationRead = readGeneration(friendId);
     (async () => {
       const [snapshot, sprites] = await Promise.all([client.read(), createFriendReader().read(friendId)]);
       if (snapshot.friendId !== friendId) throw new Error("This game session does not match the selected Friend.");
@@ -88,8 +95,9 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
       setPlayer(sprites);
       setStatus("Reading the dungeon's Friends from Robinhood Chain…");
       const cast = await loadRoster(createRng(randomSeed()), friendId, sprites.familyId as FamilyId);
+      const gen = await generationRead;
       if (cancelled) return;
-      setRoster(cast); setPhase("title");
+      setGeneration(gen); setRoster(cast); setPhase("title");
     })().catch(cause => {
       if (cancelled) return;
       setPhase("error");
@@ -101,13 +109,13 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
   const startRun = useCallback(async () => {
     if (!player || !roster || live.current.paused) return;
     void audioRef.current?.unlock();
-    const game = new Game(player, player.familyId as FamilyId, roster, randomSeed());
+    const game = new Game(player, player.familyId as FamilyId, roster, randomSeed(), { generation });
     game.reducedMotion = live.current.reducedMotion;
     game.touch = window.matchMedia("(pointer: coarse)").matches;
     gameRef.current = game;
-    clearInput(); setSummary(null); setBossBanner(null); setMenu(null); setPhase("playing");
+    clearInput(); setSummary(null); setCopied(false); setBossBanner(null); setMenu(null); setPhase("playing");
     canvasRef.current?.focus();
-  }, [player, roster, clearInput]);
+  }, [player, roster, clearInput, generation]);
 
   const newCast = useCallback(async () => {
     if (!player) return;
@@ -140,7 +148,7 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
             else if (event.type === "toast") setToast({ ...event, key: now });
             else if (event.type === "boss") setBossBanner({ id: event.enemy.sprites.tokenId, family: event.enemy.sprites.familyName, sprites: event.enemy.sprites, key: now });
             else if (event.type === "dead" || event.type === "won") {
-              setSummary({ depth: game.depth, kills: game.kills, sparks: game.sparks, time: game.time, defeated: [...game.defeated] });
+              setSummary({ depth: game.depth, kills: game.kills, sparks: game.sparks, time: game.time, defeated: [...game.defeated], floors: game.floors });
               setPhase(event.type); clearInput();
             }
           }
@@ -200,6 +208,26 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
     return l < 6 ? null : { x: dx / (l || 1) * m, y: dy / (l || 1) * m };
   };
   const active = phase === "playing" && !paused && !menu;
+  const signature = useMemo(() => player ? signatureFor(player) : null, [player]);
+  const bonus = generationBonus(generation);
+  const id = String(friendId);
+  const shareText = useMemo(() => {
+    if (!summary || !player || !signature) return "";
+    const who = `Friend #${id} (${player.familyName}, signature: ${signature.name})`;
+    const what = phase === "won" ? `cleared ${summary.floors} floors` : `reached floor ${summary.depth + 1} of ${summary.floors}`;
+    return `${who} ${what} and defeated ${summary.defeated.length} real Rare Friends in ${formatTime(summary.time)} — The Binding of RareFriend ${PREVIEW_URL}`;
+  }, [summary, player, signature, phase, id]);
+  const copyResult = async () => {
+    let ok = false;
+    // The sandbox may refuse clipboard access; the text stays selectable below either way.
+    const policy = (document as Document & { permissionsPolicy?: { allowsFeature(name: string): boolean }; featurePolicy?: { allowsFeature(name: string): boolean } });
+    const allowed = (policy.permissionsPolicy ?? policy.featurePolicy)?.allowsFeature("clipboard-write") ?? true;
+    try { if (allowed && navigator.clipboard?.writeText) { await navigator.clipboard.writeText(shareText); ok = true; } } catch { ok = false; }
+    if (!ok) {
+      try { const area = shareRef.current; if (area) { area.focus(); area.select(); ok = document.execCommand("copy"); } } catch { ok = false; }
+    }
+    setCopied(ok);
+  };
 
   return <section className="bor-game" aria-label="The Binding of RareFriend, a dungeon crawler">
     <canvas ref={canvasRef} width={VIEW_W} height={VIEW_H} className="bor-canvas" tabIndex={active ? 0 : -1}
@@ -250,14 +278,18 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
 
     {phase === "title" && player && roster && !menu && <div className="bor-screen bor-title">
       <h1 className="bor-logo">The Binding of <em>RareFriend</em></h1>
+      <p className="bor-descent">The descent of Friend #{id}</p>
       <div className="bor-hero">
-        <Portrait sprites={player} scale={6} label={`Your Friend number ${String(friendId)}`} />
+        <Portrait sprites={player} scale={8} label={`Your Friend number ${id}`} />
         <div>
-          <strong>Friend #{String(friendId)}</strong>
-          <span>{player.familyName} family</span>
+          <strong>Friend #{id}</strong>
+          <span>{player.familyName} family{bonus ? ` · Generation ${bonus.generation}` : ""}</span>
           <span className="bor-perk">Perk: <b>{PERKS[player.familyId as FamilyId].name}</b>. {PERKS[player.familyId as FamilyId].text}</span>
+          {signature && <span className="bor-perk">Signature: <b>{signature.name}</b>. {signature.text}</span>}
+          {bonus && <span className="bor-perk">Generation {bonus.generation} bonus: <b>{bonus.text}</b></span>}
         </div>
       </div>
+      <p className="bor-intro">Four floors down, every Friend in the crypt is real. Only one of them is yours.</p>
       <ol className="bor-floors" aria-label="This run's floors">
         {roster.floors.map((floor, index) => <li key={index} style={{ borderColor: THEMES[floor.family].accent }}>
           <small>Floor {index + 1}</small><b>{THEMES[floor.family].floorName}</b><span>{FAMILY_NAMES[floor.family]} · {floor.regulars.length + 1} Friends</span>
@@ -271,19 +303,25 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
       <p className="bor-hint">{touch ? "Hold your phone sideways. Left thumb moves, right thumb shoots." : "WASD move · Arrows or hold mouse to shoot · P pause · M mute"}</p>
     </div>}
 
-    {(phase === "dead" || phase === "won") && summary && player && !menu && <div className="bor-screen bor-end" role="status">
+    {(phase === "dead" || phase === "won") && summary && player && !menu && <div className={`bor-screen bor-end ${phase}`} role="status">
       <h1 className="bor-logo">{phase === "won" ? "You escaped!" : "You were bound."}</h1>
-      <p>{phase === "won" ? `Friend #${String(friendId)} broke free of all ${roster?.floors.length ?? 4} floors.` : `Friend #${String(friendId)} fell on floor ${summary.depth + 1}, ${THEMES[roster!.floors[summary.depth].family].floorName}.`}</p>
-      <p className="bor-stats">{summary.kills} defeated · {summary.sparks} sparks · {formatTime(summary.time)}</p>
+      {phase === "won" && <Portrait sprites={player} scale={6} halo="#ccff00" label={`Your Friend number ${id}, victorious`} />}
+      <p className="bor-descent">{phase === "won" ? `The crypt remembers Friend #${id}.` : `The crypt keeps Friend #${id}, until the next descent.`}</p>
+      <p>{phase === "won" ? `Friend #${id} broke free of all ${summary.floors} floors, and every keeper bowed.` : `Friend #${id} fell on floor ${summary.depth + 1}, ${THEMES[roster!.floors[summary.depth].family].floorName}.`}</p>
+      <p className="bor-stats">{summary.kills} kills · {summary.sparks} sparks · {formatTime(summary.time)}{signature ? ` · ${signature.name}` : ""}</p>
       {summary.defeated.length > 0 && <>
-        <h2>Friends you faced ({summary.defeated.length})</h2>
-        <ul className="bor-gallery">
-          {summary.defeated.slice(0, 24).map(entry => <li key={String(entry.id)} className={entry.boss ? "boss" : ""}>
+        <h2>{phase === "won" ? `They bow to Friend #${id} (${summary.defeated.length})` : `Friends you defeated (${summary.defeated.length})`}</h2>
+        <ul className={`bor-gallery${phase === "won" ? " bow" : ""}${reducedMotion ? " still" : ""}`}>
+          {summary.defeated.slice(0, 24).map((entry, index) => <li key={String(entry.id)} className={entry.boss ? "boss" : ""} style={{ animationDelay: `${(index % 12) * 0.08}s` }}>
             <Portrait sprites={entry.sprites} scale={2} halo={entry.boss ? "#e0243f" : THEMES[entry.family].accent} label={`Friend number ${entry.id}`} />
             <small>#{String(entry.id)}</small>
           </li>)}
         </ul>
       </>}
+      <div className="bor-share">
+        <textarea ref={shareRef} readOnly value={shareText} rows={3} aria-label="Your run result, ready to copy" onFocus={event => event.currentTarget.select()} />
+        <button type="button" disabled={paused} onClick={() => void copyResult()}>{copied ? "Copied ✓" : "Copy result"}</button>
+      </div>
       <div className="bor-actions">
         <button type="button" className="bor-primary" disabled={paused} onClick={() => void startRun()}>Run it back</button>
         <button type="button" disabled={paused} onClick={() => void newCast()}>New cast</button>
