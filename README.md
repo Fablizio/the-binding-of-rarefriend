@@ -5,19 +5,19 @@
 **A twin-stick dungeon crawler starring your Rare Friends Generations NFT. Every enemy and boss is
 another real Rare Friend.** Each Friend also has its own signature ability (from its sprite seed and
 token ID) and a generation bonus. Every floor has its own chiptune theme, an elite Friend and a boss
-introduced by a VS card. By [Fablizio](https://github.com/Fablizio). Rare Friends Vibeathon entry built on FriendSDK v0.1.2.
+introduced by a VS card. By [Fablizio](https://github.com/Fablizio). Rare Friends Vibeathon entry built on FriendSDK v0.1.4.
 
 - **Play:** https://fablizio.github.io/the-binding-of-rarefriend/ (needs a wallet on Robinhood mainnet holding a hardwired Generations Friend)
 - **Game source, rules and controls:** [`games/binding-of-rarefriend/`](games/binding-of-rarefriend/README.md)
 - **Run locally:** `npm ci && npm run build && npm run dev:game -- games/binding-of-rarefriend`, then open http://localhost:4173
 
-This repository is a copy of [FriendSDK v0.1.2](https://github.com/spokesz/friendsdk) (Apache-2.0,
+This repository is a copy of [FriendSDK v0.1.4](https://github.com/spokesz/friendsdk) (Apache-2.0,
 see `LICENSE` and `NOTICE.md`) with the game added under `games/binding-of-rarefriend/`. The SDK
 itself is unchanged. The original SDK documentation follows.
 
 ---
 
-# FriendSDK v0.1.2
+# FriendSDK v0.1.4
 
 Build a playable Rare Friends game with your AI coding agent. You create the
 experience and game rules; the SDK supplies wallet connection, owned Friend
@@ -317,12 +317,12 @@ also needs [LAN networking configuration](https://learn.microsoft.com/en-us/wind
 
 ## Install in an existing project
 
-Download `rarefriends-friendsdk-0.1.2.tgz` from the
-[v0.1.2 GitHub release](https://github.com/spokesz/friendsdk/releases/tag/v0.1.2)
+Download `rarefriends-friendsdk-0.1.4.tgz` from the
+[v0.1.4 GitHub release](https://github.com/spokesz/friendsdk/releases/tag/v0.1.4)
 into your existing project, then run there:
 
 ```sh
-npm install ./rarefriends-friendsdk-0.1.2.tgz react react-dom
+npm install ./rarefriends-friendsdk-0.1.4.tgz react react-dom
 npx friendsdk init ./games/my-game
 npx friendsdk dev ./games/my-game
 ```
@@ -423,7 +423,7 @@ For vibeathon game submissions, include a **public playable preview URL** in the
 submission README and PR description, with the required wallet/network and
 controls. GitHub Pages is an allowed host; use the steps above.
 
-Submit the game source and assets, run instructions, SDK version **v0.1.2** and
+Submit the game source and assets, run instructions, SDK version **v0.1.4** and
 exact costs and rules for its items, rewards, upgrades and currencies. Include
 outcome weights and consumable rules when using the supplied chance game. RF uses
 bigint base units (`1 RF = 10n ** 18n`). In that chance game, each purchased
@@ -451,5 +451,5 @@ may host submission previews themselves or through their own Pages workflow.
 | [Contracts](contracts/README.md) | Optional contract deployment and developer tooling |
 | [Oracle operations](docs/oracle/README.md) | RNG delivery, pending plays and proposed recovery work |
 
-Trading, creator fees and wearable NFTs are not implemented in v0.1.2. See the
+Trading, creator fees and wearable NFTs are not implemented in v0.1.4. See the
 [capability list](HOST_INTEGRATION.md#capabilities) for the full supported scope.

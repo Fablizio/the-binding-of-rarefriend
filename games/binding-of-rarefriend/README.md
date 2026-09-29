@@ -4,7 +4,7 @@
 
 ![The boss VS card: your Friend against the floor's keeper](media/vs.png)
 
-Builder: Fablizio · [GitHub @Fablizio](https://github.com/Fablizio) · [X @FabrizioCottone](https://x.com/FabrizioCottone) · [Telegram @Fablizio](https://t.me/Fablizio) · FriendSDK **v0.1.2** · Rare Friends Vibeathon (Character Spotlight)
+Builder: Fablizio · [GitHub @Fablizio](https://github.com/Fablizio) · [X @FabrizioCottone](https://x.com/FabrizioCottone) · [Telegram @Fablizio](https://t.me/Fablizio) · FriendSDK **v0.1.4** · Rare Friends Vibeathon (Character Spotlight)
 
 A twin-stick, room-by-room dungeon crawler in the spirit of the classic roguelites. **Your verified
 Generations Friend is the hero**, drawn from its canonical on-chain sprite, and its family gives it a
@@ -197,14 +197,14 @@ player keeps the canonical black mask and white halo.
 ## Economy
 
 **Play is free: 0 RF.** There are no purchases, consumables or rewards, and nothing is simulated as
-RF. Sparks and relics are run-only and reset on reload. The SDK v0.1.2 runtime still requires a
+RF. Sparks and relics are run-only and reset on reload. The SDK v0.1.4 runtime still requires a
 chance-game `game.json`, so this directory includes **unused schema-only terms** (a 1 RF token with a
 single 100% / 10,000 bps reward of 1 RF, both `1000000000000000000` base units). The component never
 calls `buy`, `play`, `settle` or `redeem`.
 
 Future RF ideas, not implemented: an RF-priced "second chance" heart, RF-backed cosmetic halos
 for your Friend, and a weekly seeded "daily crypt" with an RF-funded prize pool. Each would need
-custom integration beyond the v0.1.2 bridge, which has no persistence, upgrade or extra-currency APIs.
+custom integration beyond the v0.1.4 bridge, which has no persistence, upgrade or extra-currency APIs.
 
 ## Checks
 
