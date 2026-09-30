@@ -225,9 +225,13 @@ Run from the SDK root. All of these were run for the current version and pass.
   through all eight signatures and generation ranks) and 72 more balance runs (every signature with
   the same nine seeds), then 18 runs as generation 1 and the same 18 as generation 6. It also checks
   that each generation's bonus is stronger than the next one's. It fails on any room the bot cannot clear, elite and boss rooms included.
-  Latest result: the invulnerable bot cleared 27/27 runs. The simple normal bot reaches floor 2.0–2.6
-  on average with every signature, and dies mostly to bosses (elites killed it twice in 27 runs). On the
-  same 18 seeds it reaches floor 2.83 on average as generation 1 (Legendary) and 1.94 as generation 6.
+  Latest result, after difficulty was raised following playtesting (enemies +25% HP and +10% speed,
+  enemy shots +10% faster with 10% shorter cooldowns, elites and bosses +30% HP, bosses enrage at 60%
+  HP instead of 50%, one more Friend per fight room from floor 2, fewer hearts after cleared rooms):
+  the invulnerable bot still clears 27/27 runs, so every layout stays beatable. The simple normal bot,
+  which never dodges, now reaches floor 1.63 on average (2.37 before), 1.2–1.7 per signature, and dies
+  mostly to the first boss (20 of 27 runs). On the same 18 seeds it reaches floor 2.33 on average as
+  generation 1 (Legendary) and 1.39 as generation 6.
 - `node games/binding-of-rarefriend/tests/browser.mjs`: real SDK runtime in headless Chromium with the
   SDK's mock wallet and RPC fixtures, extended to answer the artwork registry and Multicall3 for many
   IDs (the fixture reports generation 1). Checks desktop, phone landscape and phone portrait for browser

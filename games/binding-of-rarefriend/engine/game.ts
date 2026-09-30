@@ -29,6 +29,12 @@ export type Tear = {
 };
 export type EnemyKind = "rattler" | "mimic" | "kin" | "cell" | "glitch" | "drifter" | "brute" | "glint" | "shade" | "boss";
 const KIND_BY_FAMILY: readonly EnemyKind[] = ["rattler", "mimic", "kin", "cell", "glitch", "drifter", "brute", "glint", "shade"];
+/**
+ * Difficulty raised after playtesting: enemies get more HP, speed, faster shots and shorter fire
+ * cooldowns; elites and bosses get more HP; bosses enrage earlier.
+ */
+const ENEMY_HP = 1.25, ENEMY_SPEED = 1.1, ENEMY_FIRE_COOLDOWN = 0.9, ENEMY_SHOT_SPEED = 1.1;
+const ELITE_BOSS_HP = 1.3, BOSS_ENRAGE_AT = 0.6, CLEAR_HEART_SHARE = 0.2;
 const BASE_HP: Readonly<Record<EnemyKind, number>> = { rattler: 10, mimic: 8, kin: 5, cell: 12, glitch: 8, drifter: 7, brute: 20, glint: 10, shade: 8, boss: 110 };
 
 export type Enemy = {
@@ -241,7 +247,8 @@ export class Game {
       return;
     }
     const regulars = this.cast.regulars;
-    let budget = 2 + Math.min(this.depth, 3) + this.rng.int(2) + (room.distance > 3 ? 1 : 0);
+    // From floor 2 on, one more Friend per normal fight room (the spawn loop stops when free tiles run out).
+    let budget = 2 + Math.min(this.depth, 3) + this.rng.int(2) + (room.distance > 3 ? 1 : 0) + (this.depth >= 1 ? 1 : 0);
     let spawned = 0;
     const tiles = this.rng.shuffle(this.freeTiles(210));
     if (room.special && tiles.length) {
@@ -272,11 +279,11 @@ export class Game {
     const kind: EnemyKind = boss ? "boss" : KIND_BY_FAMILY[family];
     const elite = !boss && !minion && this.rng.chance(0.08 + this.depth * 0.04);
     const hpMul = (1 + this.depth * 0.32) * (elite ? 1.6 : 1);
-    const hp = boss ? 110 + this.depth * 75 : BASE_HP[kind] * hpMul;
+    const hp = boss ? (110 + this.depth * 75) * ELITE_BOSS_HP : BASE_HP[kind] * hpMul * ENEMY_HP;
     const scale = boss ? 6 : kind === "brute" ? 4 : kind === "kin" ? 2 : 3;
     const r = boss ? 34 : kind === "brute" ? 20 : kind === "kin" ? 11 : 15;
     const speedMul = 1 + this.depth * 0.07;
-    const speed = ({ rattler: 82, mimic: 70, kin: 62, cell: 42, glitch: 128, drifter: 72, brute: 42, glint: 18, shade: 72, boss: 64 } as const)[kind] * speedMul;
+    const speed = ({ rattler: 82, mimic: 70, kin: 62, cell: 42, glitch: 128, drifter: 72, brute: 42, glint: 18, shade: 72, boss: 64 } as const)[kind] * speedMul * ENEMY_SPEED;
     return {
       uid: this.uid++, kind, family, sprites, x, y, vx: 0, vy: 0, r, hp, maxHp: hp, speed, scale,
       flying: kind === "drifter" || (boss && family === 5), boss, elite, child: false, minion,
@@ -287,7 +294,7 @@ export class Game {
 
   makeSpecial(sprites: GenerationSprites, x: number, y: number): Enemy {
     const e = this.makeEnemy(sprites, x, y, false);
-    const hp = (BASE_HP[e.kind] * 3 + 26) * (1 + this.depth * 0.32);
+    const hp = (BASE_HP[e.kind] * 3 + 26) * (1 + this.depth * 0.32) * ELITE_BOSS_HP;
     const big = e.kind === "brute";
     Object.assign(e, { special: true, elite: false, scale: big ? 5 : 4, r: big ? 24 : 20, hp, maxHp: hp, sp: 2.5 });
     return e;
@@ -529,6 +536,7 @@ export class Game {
   }
 
   private enemyTear(x: number, y: number, dir: Vec, speed: number, r = 7) {
+    speed *= ENEMY_SHOT_SPEED;
     this.tears.push({ x, y, vx: dir.x * speed, vy: dir.y * speed, life: 2.6, age: 0, r, dmg: 1, friendly: false,
       pierce: false, split: false, homing: false, wobble: -1, hit: new Set() });
     this.sfx("enemyShot");
@@ -570,7 +578,7 @@ export class Game {
           vx = (toPlayer.x * want + side.x * 0.6) * e.speed; vy = (toPlayer.y * want + side.y * 0.6) * e.speed;
           if (e.t <= 0) {
             this.enemyTear(e.x, e.y - 20, norm(p.x - e.x, p.y - 24 - (e.y - 20)), 210);
-            e.shots++; e.t = 1.7;
+            e.shots++; e.t = 1.7 * ENEMY_FIRE_COOLDOWN;
             if (e.shots % 2 === 0) e.state = "blinkOut";
           }
           break;
@@ -597,7 +605,7 @@ export class Game {
             this.enemyTear(e.x, e.y - 18, { x: Math.cos(a), y: Math.sin(a) }, 190);
             // Elite: every shot is mirrored into a full X.
             if (e.special) for (const m of [Math.PI - a, -a, Math.PI + a]) this.enemyTear(e.x, e.y - 18, { x: Math.cos(m), y: Math.sin(m) }, 190);
-            e.t = this.rng.range(1.8, 2.6);
+            e.t = this.rng.range(1.8, 2.6) * ENEMY_FIRE_COOLDOWN;
           }
           break;
         }
@@ -627,7 +635,7 @@ export class Game {
             const n = this.depth === 0 ? 6 : 8, offset = this.rng.range(0, 1);
             this.ring(e, n, 150, offset);
             if (e.special) this.ring(e, n, 100, offset + Math.PI / n);
-            e.t = e.special ? 2.9 : 2.6;
+            e.t = (e.special ? 2.9 : 2.6) * ENEMY_FIRE_COOLDOWN;
           }
           break;
         }
@@ -723,7 +731,7 @@ export class Game {
 
   private updateBoss(e: Enemy, dt: number, toPlayer: Vec, d: number) {
     const attacks = BOSS_ATTACKS[e.family];
-    const enraged = e.hp < e.maxHp * 0.5;
+    const enraged = e.hp < e.maxHp * BOSS_ENRAGE_AT;
     const setFacing = (x: number, y: number) => {
       const f = Math.abs(x) >= Math.abs(y) ? (x < 0 ? "left" : "right") : (y < 0 ? "up" : "down");
       e.facing = f; if (f === "left" || f === "right") e.side = f;
@@ -787,11 +795,11 @@ export class Game {
         }
         return;
       }
-      case "rest": if (e.t <= 0) { e.state = "idle"; e.t = enraged ? 0.5 : 0.9; } return;
+      case "rest": if (e.t <= 0) { e.state = "idle"; e.t = (enraged ? 0.5 : 0.9) * ENEMY_FIRE_COOLDOWN; } return;
     }
   }
 
-  private bossRest(e: Enemy, enraged: boolean) { e.state = "rest"; e.t = enraged ? 0.45 : 0.8; e.moving = false; }
+  private bossRest(e: Enemy, enraged: boolean) { e.state = "rest"; e.t = (enraged ? 0.45 : 0.8) * ENEMY_FIRE_COOLDOWN; e.moving = false; }
 
   private startBossAttack(e: Enemy, attack: BossAttack, enraged: boolean, toPlayer: Vec) {
     switch (attack) {
@@ -1097,7 +1105,7 @@ export class Game {
     this.sfx("door");
     if (room.kind === "normal" && this.rng.chance(0.38)) {
       const spot = this.freeTiles(0).sort((a, b) => dist(a, { x: CX, y: CY }) - dist(b, { x: CX, y: CY }))[0] ?? { x: CX, y: CY };
-      state.pickups.push({ x: spot.x, y: spot.y, kind: this.rng.chance(0.4) ? "heart" : "spark", t: 0 });
+      state.pickups.push({ x: spot.x, y: spot.y, kind: this.rng.chance(CLEAR_HEART_SHARE) ? "heart" : "spark", t: 0 });
     }
   }
 
