@@ -31,7 +31,13 @@ for (let id = 1; id <= 20000; id++) {
 for (const [id, n] of Object.entries(counts)) assert(n > 20000 * 0.09 && n < 20000 * 0.16, `signature ${id} share ${n}`);
 console.log("signature spread over 20000 IDs:", JSON.stringify(counts));
 assert.equal(generationBonus(null), null); assert.equal(generationBonus(0), null);
-assert.equal(generationBonus(1).text, "+1 heart");
+assert.equal(generationBonus(1).tier, "Legendary"); assert.equal(generationBonus(1).text, "+1 heart, +15% dmg, +10% fire rate");
+assert.deepEqual([1, 2, 3, 4, 5, 6, 9].map(g => generationBonus(g).tier), ["Legendary", "Epic", "Rare", "Uncommon", "Common", "Standard", "Standard"]);
+for (let g = 1; g < 6; g++) {
+  const a = generationBonus(g), b = generationBonus(g + 1);
+  const power = x => (1 + x.hearts * 0.1) * x.damage * x.fireRate;
+  assert(a.hearts >= b.hearts && a.damage >= b.damage && power(a) > power(b), `generation ${g} must be stronger than ${g + 1}`);
+}
 
 const results = { god: [], normal: [] };
 let n = 0, problems = 0;
@@ -67,6 +73,19 @@ for (const signature of SIGNATURES) {
   }
   const s = summarize(list);
   console.log(`  ${signature.name.padEnd(13)} won ${s.won}/9 · avg floor reached ${s.avgDepthReached} · avg kills ${s.avgKills} · avg ${s.avgTime}s`);
+}
+// Generation ladder: the same 18 normal runs (two signatures per family) as generation 1 vs generation 6.
+const ladder = {};
+for (const generation of [1, 6]) {
+  const list = [];
+  for (let family = 0; family < 9; family++) for (let k = 0; k < 2; k++) {
+    const fams = [family, (family + 2) % 9, (family + 5) % 9, (family + 8) % 9];
+    const r = run(7000 + family * 2 + k, family, fams, false, undefined, { signature: SIGNATURES[(family + k * 4) % SIGNATURES.length].id, generation });
+    if (r.log.some(l => l.startsWith("STUCK"))) { problems++; console.log("PROBLEM", { family, generation, last: r.log.slice(-2) }); }
+    list.push(r);
+  }
+  ladder[generation] = summarize(list);
+  console.log(`  generation ${generation}: won ${ladder[generation].won}/${list.length} · avg floor reached ${ladder[generation].avgDepthReached} · avg kills ${ladder[generation].avgKills}`);
 }
 if (problems) { console.log(`${problems} problem run(s)`); process.exit(1); }
 console.log("ok");

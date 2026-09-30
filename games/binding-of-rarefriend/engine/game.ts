@@ -149,16 +149,9 @@ export class Game {
       case 7: s.burst = true; break;
       case 8: s.invuln = 1.8; s.speed = 240; break;
     }
-    // Generation bonus (1 = rarest), applied on top of the family perk.
-    switch (this.genBonus?.generation) {
-      case undefined: break;
-      case 1: s.maxHp += 2; break;
-      case 2: s.damage *= 1.15; break;
-      case 3: s.fireDelay /= 1.1; break;
-      case 4: s.speed *= 1.1; break;
-      case 5: s.range *= 1.15; break;
-      default: s.damage *= 1.05; break;
-    }
+    // Generation rank ladder (1 = rarest = strongest), applied on top of the family perk.
+    const gen = this.genBonus;
+    if (gen) { s.maxHp += gen.hearts * 2; s.damage *= gen.damage; s.fireDelay /= gen.fireRate; }
     this.player.hp = s.maxHp;
     this.syncFamiliars();
     this.enterFloor(0);

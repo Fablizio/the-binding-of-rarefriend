@@ -14,8 +14,8 @@ Generations families, which sets the floor's look, obstacles and enemy behaviour
 your own family's turf.
 
 No two Friends play the same: on top of the family perk, **each Friend has its own signature ability**,
-derived from its canonical sprite seed and token ID, and a small **generation bonus** read from its
-Generations generation. The run is framed as *the descent of Friend #ID*: the title card puts your Friend
+derived from its canonical sprite seed and token ID, and a **generation rank** read from its
+Generations generation (Gen 1 Legendary is the strongest, Gen 6 Standard gets no bonus). The run is framed as *the descent of Friend #ID*: the title card puts your Friend
 front and centre, and on victory every Friend you defeated bows to yours ("The crypt remembers Friend
 #ID"). The end screen has a **Copy result** line to share.
 
@@ -106,21 +106,27 @@ and with relics (for example Ricochet with piercing Skeleton shots, or Chain Spa
 | Trailblazer | Moving leaves a short trail of pixels that burns Friends standing on it. |
 | Fifth Shot | Every fifth shot is bigger, deals 60% more damage and pierces. |
 
-### Generation bonus
+### Generation rank
 
 The game reads your own Friend's `generation(tokenId)` once from the Generations contract
 (`0x14C4…181D` on Robinhood Chain), the same value the runtime's eligibility check uses. It is a single
-read of your verified Friend, never a scan. If the read fails or times out, no bonus is shown and the run
-plays normally.
+read of your verified Friend, never a scan. The generation sets a rank on a ladder: the rarer the
+generation, the stronger the bonus. It stacks on top of the family perk and the signature, and is shown
+on the title card, the boss VS card and the HUD (e.g. `GEN 1 · LEGENDARY: +1 heart, +15% dmg, +10% fire rate`).
+If the read fails or times out, no bonus or label is shown and the run plays normally. The rank is a
+gameplay bonus only; it does not change who can play (any hardwired Friend, generation ≥ 1).
 
-| Generation | Bonus |
-| --- | --- |
-| 1 (rarest) | +1 heart |
-| 2 | +15% damage |
-| 3 | +10% fire rate |
-| 4 | +10% speed |
-| 5 | +15% shot range |
-| 6 and later | +5% damage |
+| Generation | Tier | Bonus |
+| --- | --- | --- |
+| 1 (rarest) | Legendary | +1 heart, +15% damage, +10% fire rate, gold outline around your Friend |
+| 2 | Epic | +1 heart, +10% damage |
+| 3 | Rare | +10% damage, +5% fire rate |
+| 4 | Uncommon | +10% damage |
+| 5 | Common | +5% damage |
+| 6 and later | Standard | none (label only) |
+
+The gold outline is drawn around the canonical sprite and its white halo; the sprite pixels are unchanged.
+Genesis NFTs are a separate collection that FriendSDK v0.1.4 cannot select as a player; a Genesis-holder perk is on the roadmap.
 
 ### Sharing a run
 
@@ -186,13 +192,13 @@ and has its own **Music** toggle.
 ## How the Friends are chosen
 
 At the start of each run (and on **New cast**), the game samples 120 random token IDs from
-1–100,000, the range where hardwired Generations Friends live, and reads each ID's family from the
+1–100,000 (hardwired Friends also exist above that range; enemies are simply sampled from it), and reads each ID's family from the
 SDK's pinned sprite registry (`familyOf`). It then groups them into floors and reads `seedOf` and the
 64 canonical frames (`frames`) of up to six Friends per floor. Reads go through one Multicall3 call per step, with a fallback
 to individual JSON-RPC batched reads. Only the public **artwork registry** is read for other Friends (plus one `generation` read of your
 own Friend for its bonus). The Generations collection is never scanned, no owners are looked up, and nothing depends on who holds those Friends.
 Enemy art is the unmodified canonical 16×16 mask at integer scale with a family-coloured halo. The
-player keeps the canonical black mask and white halo.
+player keeps the canonical black mask and white halo (plus a gold outline around it for Generation 1).
 
 ## Economy
 
@@ -216,10 +222,12 @@ Run from the SDK root. All of these were run for the current version and pass.
   fully connected, and that 300 generated floors each have an elite room (with no fallback to an
   empty room). It checks that signatures are deterministic and evenly spread over 20,000 token IDs.
   Then a headless bot plays 54 full runs (all nine player families, invulnerable and normal, cycling
-  through all eight signatures and generation bonuses) and 72 more balance runs (every signature with
-  the same nine seeds). It fails on any room the bot cannot clear, elite and boss rooms included.
+  through all eight signatures and generation ranks) and 72 more balance runs (every signature with
+  the same nine seeds), then 18 runs as generation 1 and the same 18 as generation 6. It also checks
+  that each generation's bonus is stronger than the next one's. It fails on any room the bot cannot clear, elite and boss rooms included.
   Latest result: the invulnerable bot cleared 27/27 runs. The simple normal bot reaches floor 2.0–2.6
-  on average with every signature, and dies mostly to bosses (elites killed it once in 27 runs).
+  on average with every signature, and dies mostly to bosses (elites killed it twice in 27 runs). On the
+  same 18 seeds it reaches floor 2.83 on average as generation 1 (Legendary) and 1.94 as generation 6.
 - `node games/binding-of-rarefriend/tests/browser.mjs`: real SDK runtime in headless Chromium with the
   SDK's mock wallet and RPC fixtures, extended to answer the artwork registry and Multicall3 for many
   IDs (the fixture reports generation 1). Checks desktop, phone landscape and phone portrait for browser

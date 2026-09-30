@@ -4,8 +4,10 @@
 
 **A twin-stick dungeon crawler starring your Rare Friends Generations NFT. Every enemy and boss is
 another real Rare Friend.** Each Friend also has its own signature ability (from its sprite seed and
-token ID) and a generation bonus. Every floor has its own chiptune theme, an elite Friend and a boss
+token ID) and a generation rank: Gen 1 is Legendary (+1 heart, +15% damage, +10% fire rate and a gold
+outline), down to Gen 6 Standard with no bonus. Every floor has its own chiptune theme, an elite Friend and a boss
 introduced by a VS card. By [Fablizio](https://github.com/Fablizio). Rare Friends Vibeathon entry built on FriendSDK v0.1.4.
+Genesis NFTs are a separate collection that FriendSDK v0.1.4 cannot select as a player; a Genesis-holder perk is on the roadmap.
 
 - **Play:** https://fablizio.github.io/the-binding-of-rarefriend/ (needs a wallet on Robinhood mainnet holding a hardwired Generations Friend)
 - **Game source, rules and controls:** [`games/binding-of-rarefriend/`](games/binding-of-rarefriend/README.md)

@@ -14,7 +14,7 @@ import { GENERATION_ELIGIBILITY_ABI } from "@rarefriends/friendsdk/identity";
 import type { Rng } from "./rng";
 import type { FamilyId } from "./themes";
 
-/** Hardwired Generations Friends live in this ID range (higher IDs are Generation 0). */
+/** Enemies are sampled from IDs 1–100,000. Hardwired Friends also exist above this range (e.g. #332833 is Gen 6). */
 export const MAX_FRIEND_ID = 100_000;
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as Address;
 const SAMPLE = 120;

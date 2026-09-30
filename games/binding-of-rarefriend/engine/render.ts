@@ -1,6 +1,7 @@
 /** Canvas renderer for rooms, Friends, shots and the HUD. Everything is drawn from code; no external art. */
 import { COLS, ROWS, STEP, key, type Dir, type Room } from "./dungeon";
 import { CX, CY, DOOR_POS, IN_H, IN_W, IN_X, IN_Y, TILE, VIEW_H, VIEW_W, WALL, type Enemy, type Game } from "./game";
+import { generationLabel, LEGENDARY_GOLD } from "./signatures";
 import { drawFriend } from "./sprites";
 import { FAMILY_NAMES, RELICS, SPECIAL_MOVES, THEMES, type Theme } from "./themes";
 
@@ -273,7 +274,7 @@ export function render(ctx: CanvasRenderingContext2D, game: Game, now: number) {
     ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.beginPath(); ctx.ellipse(p.x, p.y + 2, 20, 7, 0, 0, Math.PI * 2); ctx.fill();
     const lift = game.stats.flying ? 6 + (game.reducedMotion ? 0 : Math.sin(now / 250) * 2) : 0;
     drawFriend(ctx, game.playerSprites, p.x, p.y + 2 - lift, { facing: p.facing, side: p.side, walking: p.moving, frame }, 4, "#000000", "#ffffff",
-      flicker && !game.reducedMotion ? 0.35 : 1);
+      flicker && !game.reducedMotion ? 0.35 : 1, game.genBonus?.generation === 1 ? LEGENDARY_GOLD : undefined);
   } });
   for (const familiar of game.familiars) layers.push({ y: familiar.y, draw: () =>
     drawFriend(ctx, game.playerSprites, familiar.x, familiar.y, { facing: p.facing, side: p.side, walking: p.moving, frame }, 2, "#000000", "#ccff00") });
@@ -353,9 +354,17 @@ function paintHud(ctx: CanvasRenderingContext2D, game: Game) {
   const bottom = IN_Y + IN_H + WALL + 19;
   ctx.textAlign = "center"; ctx.font = "bold 13px ui-monospace, monospace";
   const sig = game.signature, gen = game.genBonus;
-  const parts = [`◆ ${sig.name.toUpperCase()}: ${sig.text}`];
-  if (gen) parts.push(`GEN ${gen.generation}: ${gen.text}`);
-  ctx.fillStyle = "#ccff00"; ctx.fillText(parts.join("  ·  "), VIEW_W / 2, bottom, 900);
+  // Signature in lime, then the generation tier (gold for Legendary), centred together.
+  const segments: [string, string][] = [[`◆ ${sig.name.toUpperCase()}: ${sig.text}`, "#ccff00"]];
+  if (gen) segments.push(["  ·  ", "#ccff00"], [generationLabel(gen), gen.generation === 1 ? LEGENDARY_GOLD : "#ffffff"]);
+  let size = 13;
+  const width = () => segments.reduce((sum, [text]) => sum + ctx.measureText(text).width, 0);
+  while (size > 10 && width() > 920) { size--; ctx.font = `bold ${size}px ui-monospace, monospace`; }
+  const scaleX = Math.min(1, 920 / width());
+  ctx.save(); ctx.translate(VIEW_W / 2, bottom); ctx.scale(scaleX, 1); ctx.textAlign = "left";
+  let cursor = -width() / 2;
+  for (const [text, color] of segments) { ctx.fillStyle = color; ctx.fillText(text, cursor, 0); cursor += ctx.measureText(text).width; }
+  ctx.restore(); ctx.textAlign = "center";
   ctx.font = "12px ui-monospace, monospace"; ctx.fillStyle = "#bdbdbd";
   const relicNames = game.relics.map(id => RELICS.find(r => r.id === id)!.name);
   ctx.fillText(`Perk: ${game.perk.name}${relicNames.length ? " · " + relicNames.join(" · ") : ""}`, VIEW_W / 2, bottom + 17, 760);

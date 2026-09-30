@@ -1,6 +1,6 @@
 /**
  * Every Friend plays a little differently: a signature ability derived deterministically from its
- * canonical sprite seed and token ID, plus a small bonus from its Generations generation (1 = rarest).
+ * canonical sprite seed and token ID, plus a rank-ladder bonus from its Generations generation (1 = rarest = strongest).
  * Both stack with the family perk and with relics. Presentation and run-only gameplay; no RF involved.
  */
 import type { GenerationSprites } from "@rarefriends/friendsdk/sprites";
@@ -40,16 +40,29 @@ export function signatureById(id: SignatureId): Signature {
   return SIGNATURES.find(signature => signature.id === id)!;
 }
 
-export type GenerationBonus = Readonly<{ generation: number; text: string }>;
+/** Gold used for the Legendary (generation 1) label and player outline. */
+export const LEGENDARY_GOLD = "#ffd23f";
 
-/** Generation 1 is the rarest. Unknown or failed reads give no bonus (null), never a blocked run. */
+export type GenerationTier = "Legendary" | "Epic" | "Rare" | "Uncommon" | "Common" | "Standard";
+/** hearts: extra hearts (2 HP each); damage / fireRate: multipliers. Lower generation = stronger. */
+export type GenerationBonus = Readonly<{ generation: number; tier: GenerationTier; text: string; hearts: number; damage: number; fireRate: number }>;
+
+const LADDER: readonly Omit<GenerationBonus, "generation">[] = [
+  { tier: "Legendary", text: "+1 heart, +15% dmg, +10% fire rate", hearts: 1, damage: 1.15, fireRate: 1.1 },
+  { tier: "Epic", text: "+1 heart, +10% dmg", hearts: 1, damage: 1.1, fireRate: 1 },
+  { tier: "Rare", text: "+10% dmg, +5% fire rate", hearts: 0, damage: 1.1, fireRate: 1.05 },
+  { tier: "Uncommon", text: "+10% dmg", hearts: 0, damage: 1.1, fireRate: 1 },
+  { tier: "Common", text: "+5% dmg", hearts: 0, damage: 1.05, fireRate: 1 },
+  { tier: "Standard", text: "no bonus", hearts: 0, damage: 1, fireRate: 1 },
+];
+
+/** Rank ladder: generation 1 (rarest) is strongest, 6 and later get none. Unknown or failed reads give null, never a blocked run. */
 export function generationBonus(generation: number | null | undefined): GenerationBonus | null {
   if (!generation || !Number.isInteger(generation) || generation < 1) return null;
-  const text = generation === 1 ? "+1 heart"
-    : generation === 2 ? "+15% damage"
-    : generation === 3 ? "+10% fire rate"
-    : generation === 4 ? "+10% speed"
-    : generation === 5 ? "+15% shot range"
-    : "+5% damage";
-  return { generation, text };
+  return { generation, ...LADDER[Math.min(generation, 6) - 1] };
+}
+
+/** Short label, e.g. "GEN 1 · LEGENDARY: +1 heart, +15% dmg, +10% fire rate". */
+export function generationLabel(bonus: GenerationBonus) {
+  return `GEN ${bonus.generation} · ${bonus.tier.toUpperCase()}: ${bonus.text}`;
 }

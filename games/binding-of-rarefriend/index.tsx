@@ -13,7 +13,7 @@ import { randomSeed, createRng } from "./engine/rng";
 import { Audio } from "./engine/audio";
 import { frameCanvas } from "./engine/sprites";
 import { FAMILY_NAMES, PERKS, THEMES, type FamilyId } from "./engine/themes";
-import { generationBonus, signatureFor } from "./engine/signatures";
+import { generationBonus, generationLabel, signatureFor } from "./engine/signatures";
 
 type Phase = "loading" | "error" | "title" | "playing" | "dead" | "won";
 type Stick = { id: number; origin: Vec; at: Vec };
@@ -22,7 +22,7 @@ const STICK = 70;
 const PREVIEW_URL = "https://fablizio.github.io/the-binding-of-rarefriend/";
 
 /** A canonical Friend portrait drawn from its on-chain sprite. */
-function Portrait({ sprites, scale = 4, halo = "#ffffff", label }: { sprites: GenerationSprites; scale?: number; halo?: string; label: string }) {
+function Portrait({ sprites, scale = 4, halo = "#ffffff", label, legendary = false }: { sprites: GenerationSprites; scale?: number; halo?: string; label: string; legendary?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current, ctx = canvas?.getContext("2d");
@@ -31,7 +31,7 @@ function Portrait({ sprites, scale = 4, halo = "#ffffff", label }: { sprites: Ge
     const source = frameCanvas(sprites.clips.idle[facing][0], scale, "#000000", halo);
     ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(source, 0, 0);
   }, [sprites, scale, halo]);
-  return <canvas ref={ref} width={18 * scale} height={18 * scale} className="bor-portrait" role="img" aria-label={label} />;
+  return <canvas ref={ref} width={18 * scale} height={18 * scale} className={`bor-portrait${legendary ? " bor-legendary" : ""}`} role="img" aria-label={label} />;
 }
 
 function formatTime(seconds: number) {
@@ -289,8 +289,9 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
       style={{ "--vs-accent": vs.accent } as React.CSSProperties}
       onPointerDown={event => { event.preventDefault(); if (!paused) { audioRef.current?.wake(); gameRef.current?.skipIntro(); } }}>
       <div className="bor-vs-side you">
-        <Portrait sprites={player} scale={8} label={`Your Friend number ${id}`} />
+        <Portrait sprites={player} scale={8} label={`Your Friend number ${id}`} legendary={bonus?.generation === 1} />
         <strong>Friend #{id}</strong><span>{player.familyName} family</span>{signature && <span>Signature: {signature.name}</span>}
+        {bonus && <span className={`bor-vs-tier${bonus.generation === 1 ? " legendary" : ""}`}>Gen {bonus.generation} · {bonus.tier}</span>}
       </div>
       <div className="bor-vs-mid" aria-label="versus"><span>VS</span></div>
       <div className="bor-vs-side them">
@@ -311,13 +312,13 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
       <h1 className="bor-logo">The Binding of <em>RareFriend</em></h1>
       <p className="bor-descent">The descent of Friend #{id}</p>
       <div className="bor-hero">
-        <Portrait sprites={player} scale={8} label={`Your Friend number ${id}`} />
+        <Portrait sprites={player} scale={8} label={`Your Friend number ${id}`} legendary={bonus?.generation === 1} />
         <div>
           <strong>Friend #{id}</strong>
-          <span>{player.familyName} family{bonus ? ` · Generation ${bonus.generation}` : ""}</span>
+          <span>{player.familyName} family{bonus ? ` · Generation ${bonus.generation} (${bonus.tier})` : ""}</span>
           <span className="bor-perk">Perk: <b>{PERKS[player.familyId as FamilyId].name}</b>. {PERKS[player.familyId as FamilyId].text}</span>
           {signature && <span className="bor-perk">Signature: <b>{signature.name}</b>. {signature.text}</span>}
-          {bonus && <span className="bor-perk">Generation {bonus.generation} bonus: <b>{bonus.text}</b></span>}
+          {bonus && <span className={`bor-perk bor-tier${bonus.generation === 1 ? " legendary" : ""}`}>{generationLabel(bonus)}</span>}
         </div>
       </div>
       <p className="bor-intro">Four floors down, every Friend in the crypt is real. Only one of them is yours.</p>

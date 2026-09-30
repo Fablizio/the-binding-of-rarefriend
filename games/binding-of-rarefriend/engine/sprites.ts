@@ -36,12 +36,19 @@ export type Pose = { facing: SpriteFacing; side: "left" | "right"; walking: bool
 /** Draw a Friend with its feet at (x, y). */
 export function drawFriend(
   ctx: CanvasRenderingContext2D, sprites: GenerationSprites, x: number, y: number, pose: Pose,
-  scale: number, ink: string, halo: string, alpha = 1,
+  scale: number, ink: string, halo: string, alpha = 1, outline?: string,
 ) {
   const frame = spriteFrame(sprites, pose.facing, pose.walking, pose.frame & 7, pose.side).frame;
   const canvas = frameCanvas(frame, scale, ink, halo);
   const foot = footRow(frame);
   const left = Math.round(x - 9 * scale), top = Math.round(y - (foot + 2) * scale);
+  if (outline) {
+    // An extra outline ring outside the halo: the silhouette in one colour, drawn behind the unchanged sprite.
+    const ring = frameCanvas(frame, scale, outline, outline);
+    ctx.save(); ctx.globalAlpha = alpha;
+    for (const [dx, dy] of [[-scale, 0], [scale, 0], [0, -scale], [0, scale]]) ctx.drawImage(ring, left + dx, top + dy);
+    ctx.restore();
+  }
   if (alpha < 1) { ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(canvas, left, top); ctx.restore(); }
   else ctx.drawImage(canvas, left, top);
 }
