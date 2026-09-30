@@ -59,8 +59,11 @@ for (let s = 0; s < 400; s++) {
 }
 console.log(`400 floors: one shop + one Room of Pain each (${painKinds.fight} fight, ${painKinds.reward} reward), all rooms connected, boss reachable without keys, locks only from floor 2, deterministic`);
 const tolls = painCheck();
-assert.deepEqual(tolls.results.map(r => r.hp), [5, 4, 1, 1, 1], "pain tolls: half a heart each way, never below half a heart");
-assert(tolls.results.every(r => r.status === "playing" && r.invuln === 0), "pain tolls never kill and are not hits");
+assert.deepEqual(tolls.results.map(r => r.hp), [5, 4, 2, 0], "pain tolls: half a heart each way, paid in full");
+assert(tolls.results.every(r => r.invuln === 0), "pain tolls are not hits");
+assert.deepEqual(tolls.results.map(r => r.status), ["playing", "playing", "playing", "dead"], "a toll at half a heart kills");
+assert.equal(tolls.results[3].cause, "pain", "death cause is the Room of Pain");
+assert(tolls.warned, "the exit door warns when the toll is lethal");
 console.log("pain tolls:", JSON.stringify(tolls.results.map(r => `${r.room}:${r.hp}`)));
 
 // Signatures are deterministic per Friend and spread evenly over token IDs and seeds.
@@ -93,7 +96,7 @@ for (let family = 0; family < 9; family++) for (const god of [true, false]) {
     const fams = [family, others[(s * 3) % 8], others[(s * 3 + 1) % 8], others[(s * 3 + 2) % 8]];
     const r = run(seed, family, fams, god, undefined, options);
     (god ? results.god : results.normal).push(r);
-    if (r.log.some(l => /^(STUCK|PAINKILL|KEYFAIL)/.test(l)) || (god && r.status !== "won")) { problems++; console.log("PROBLEM", { family, god, seed, fams, options, status: r.status, depth: r.depth, t: r.time.toFixed(0), last: r.log.slice(-3) }); }
+    if (r.log.some(l => /^(STUCK|KEYFAIL)/.test(l)) || (god && r.status !== "won")) { problems++; console.log("PROBLEM", { family, god, seed, fams, options, status: r.status, depth: r.depth, t: r.time.toFixed(0), last: r.log.slice(-3) }); }
   }
 }
 const summarize = list => ({ runs: list.length, won: list.filter(r => r.status === "won").length, dead: list.filter(r => r.status === "dead").length,

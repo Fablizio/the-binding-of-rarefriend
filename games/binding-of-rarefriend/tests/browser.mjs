@@ -160,19 +160,29 @@ try {
     });
     await page.waitForTimeout(700);
     const inPain = await withGame(game => ({ kind: game.room.kind, hp: game.player.hp }));
-    assert.deepEqual(inPain, { kind: "pain", hp: Math.max(1, hpBefore - 1) }, `${view.name}: pain toll`);
+    assert.deepEqual(inPain, { kind: "pain", hp: hpBefore - 1 }, `${view.name}: pain toll`);
     await withGame(game => { game.player.invuln = 99; });
     await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-pain-room.png`) });
+    // At half a heart the exit door warns that the toll is lethal.
+    const lethal = await withGame(game => { game.player.hp = 1; return Object.keys(game.room.doors).map(d => game.lethalToll(d)); });
+    assert(lethal.every(Boolean), `${view.name}: lethal warning`);
+    await page.waitForTimeout(300);
+    await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-pain-lethal.png`) });
     // End screens.
     await withGame((game, { won }) => {
       for (const floor of game.roster.floors) for (const sprites of [...floor.regulars, floor.boss])
         game.defeated.push({ id: sprites.tokenId, family: sprites.familyId, sprites, boss: sprites === floor.boss });
       if (won) { game.depth = game.floors - 1; game.state.trapdoor = true; game.player.x = 480; game.player.y = 298; game.player.invuln = 99; }
-      else { game.player.invuln = 0; game.hurtPlayer(99); }
+      else {
+        // Death by the Room of Pain: leave it at half a heart.
+        const d = Object.keys(game.room.doors)[0], opposite = { up: "down", down: "up", left: "right", right: "left" };
+        game.player.hp = 1; game.pendingRoom = { room: game.neighbour(d), from: opposite[d] };
+      }
     }, { won: view.name !== "phone-portrait" });
     await game.getByRole("button", { name: "Copy result" }).waitFor({ timeout: 5000 });
     await page.waitForTimeout(700);
     await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-end.png`) });
+    if (view.name === "phone-portrait") assert.match(await game.locator(".bor-end").innerText(), /paid the Room of Pain's toll/, "pain death cause shown");
     const shared = await game.getByRole("textbox", { name: /run result/ }).inputValue();
     assert.match(shared, /^Friend #7730 \(Hoverer, signature: [A-Za-z ]+\) (cleared 4 floors|reached floor \d of 4) and defeated \d+ real Rare Friends in \d+:\d\d — The Binding of RareFriend https:\/\/fablizio\.github\.io\/the-binding-of-rarefriend\/$/);
     await game.getByRole("button", { name: "Copy result" }).click();

@@ -94,8 +94,10 @@ export function botInput(game: Game, input: Input) {
       // In a shop, buy what helps and is affordable: a relic, a heart container, a key for a locked room, a heart when hurt.
       const hurt = game.player.hp <= game.stats.maxHp - 2;
       const want = game.state.shop.filter(item => !item.sold && item.price <= game.coins
-        && (item.kind === "relic" || item.kind === "container" || (item.kind === "key" && lockedLeft) || ((item.kind === "heart" || item.kind === "half") && hurt)));
-      if (ped && !ped.taken) target = ped;
+        && (item.kind === "relic" || (item.kind === "key" && lockedLeft) || ((item.kind === "heart" || item.kind === "half") && hurt)));
+      const heal = game.room.kind === "pain" && game.player.hp <= 1 ? game.state.pickups.find(x => x.kind === "heart" || x.kind === "half") : undefined;
+      if (heal) target = heal;
+      else if (ped && !ped.taken) target = ped;
       else if (pick) target = pick;
       else if (want.length) target = want[0];
       else if (game.state.trapdoor) target = { x: CX, y: CY };
@@ -126,9 +128,7 @@ export function run(seed: number, family: FamilyId, families: FamilyId[], god: b
     if (god) game.player.invuln = 1;
     const enemies = botInput(game, input);
     const p = game.player;
-    const pain = game.painCrossings, hpBefore = game.player.hp;
     game.update(dt, input);
-    if (game.painCrossings > pain && ((game.status as string) === "dead" || game.player.hp < 1)) log.push(`PAINKILL hp ${hpBefore} -> ${game.player.hp}`);
     if (game.room !== lastRoom && game.room.visited) {
       const kind = game.room.kind;
       if (kind === "shop" || kind === "pain" || kind === "treasure") visits[kind]++;
@@ -147,28 +147,29 @@ export function run(seed: number, family: FamilyId, families: FamilyId[], god: b
   }
   return { status: game.status, depth: game.depth, time: t, kills: game.kills, defeated: game.defeated.length, hp: game.player.hp, relics: game.relics,
     coins: game.coinsCollected, keys: game.keysCollected, unlocks: game.unlocks, chests: game.chestsOpened, bought: game.bought, pain: game.painCrossings, visits,
-    signature: game.signature.id, generation: game.genBonus?.generation ?? null, endRoom: game.room.special ? "elite" : game.room.kind, log };
+    signature: game.signature.id, generation: game.genBonus?.generation ?? null, endRoom: game.deathCause === "pain" ? "pain toll" : game.room.special ? "elite" : game.room.kind, log };
 }
 
-/** Pain tolls: half a heart in, half a heart out, never below half a heart, never a hit. */
+/** Pain tolls: half a heart in, half a heart out, paid in full (never a hit); at half a heart the toll kills. */
 export function painCheck() {
   const game = new Game(fakeSprites(7730, 0), 0, fakeRoster([0, 1, 2, 3]), 99);
   game.reducedMotion = true;
   const input: Input = { keys: new Set(), move: null, aim: null };
   const pain = game.floor.painRoom!;
   const door = (Object.keys(pain.doors) as Dir[])[0];
-  const results: { hp: number; invuln: number; status: string; room: string }[] = [];
+  const results: { hp: number; invuln: number; status: string; room: string; cause: string | null }[] = [];
   const cross = (room: Room, from: Dir, hp: number) => {
     game.player.hp = hp; game.player.invuln = 0;
     game.pendingRoom = { room, from };
     game.update(1 / 60, input);
-    results.push({ hp: game.player.hp, invuln: game.player.invuln, status: game.status, room: game.room.kind });
+    results.push({ hp: game.player.hp, invuln: game.player.invuln, status: game.status, room: game.room.kind, cause: game.deathCause });
   };
   const parent = game.floor.rooms.get(key(pain.gx + STEP[door][0], pain.gy + STEP[door][1]))!;
-  cross(pain, door, 6);          // in: 6 -> 5
+  cross(pain, door, 6);             // in: 6 -> 5
   cross(parent, OPPOSITE[door], 5); // out: 5 -> 4
-  cross(pain, door, 1);          // in at half a heart: stays at 1
-  cross(parent, OPPOSITE[door], 1); // out at half a heart: stays at 1
-  cross(pain, door, 2);          // in at one heart: 2 -> 1
-  return { results, crossings: game.painCrossings };
+  cross(pain, door, 3);             // in with 1½ hearts: 3 -> 2
+  game.player.hp = 1;               // a hit inside leaves half a heart
+  const warned = (Object.keys(game.room.doors) as Dir[]).every(d => game.lethalToll(d));
+  cross(parent, OPPOSITE[door], 1); // out at half a heart: the toll kills
+  return { results, crossings: game.painCrossings, warned };
 }

@@ -53,9 +53,9 @@ export type Enemy = {
 };
 export type PickupKind = "heart" | "half" | "spark" | "coin" | "key" | "chest" | "lockedChest";
 /** Shop stock. Prices are in run-only coins (never RF). */
-export type ShopKind = "half" | "heart" | "key" | "container" | "relic";
+export type ShopKind = "half" | "heart" | "key" | "relic";
 export type ShopItem = { x: number; y: number; kind: ShopKind; relic: RelicId | null; price: number; sold: boolean };
-export const SHOP_PRICES: Readonly<Record<Exclude<ShopKind, "relic">, number>> = { half: 2, heart: 3, key: 4, container: 8 };
+export const SHOP_PRICES: Readonly<Record<Exclude<ShopKind, "relic">, number>> = { half: 2, heart: 3, key: 4 };
 /** Drop tuning for keys, coins and chests (all run-only). */
 export const LOOT = {
   clearKey: 0.12, clearCoin: 0.25, killChest: 0.04, eliteChest: 0.35, lockedShare: 0.4, killChestsPerFloor: 3,
@@ -135,6 +135,8 @@ export class Game {
   chestsOpened = 0;
   bought = 0;
   painCrossings = 0;
+  /** What ended the run: a hit, or the Room of Pain's toll. */
+  deathCause: "pain" | "hit" | null = null;
   private hintCd = 0;
   private keyTipShown = false;
   defeated: Defeated[] = [];
@@ -242,27 +244,43 @@ export class Game {
 
   /** Three or four items on pedestals, from the floor's seeded RNG. */
   private stockShop(): ShopItem[] {
-    const kinds = this.rng.shuffle<ShopKind>(["half", "heart", "key", "container", "relic"]).slice(0, 3 + this.rng.int(2));
-    const items: ShopItem[] = kinds.map(kind => ({ x: 0, y: CY - 10, kind, relic: null, price: kind === "relic" ? 7 + this.rng.int(4) : SHOP_PRICES[kind], sold: false }));
+    // No heart containers for sale: those come only from relics and bosses.
+    const kinds = this.rng.shuffle<ShopKind>(["half", "heart", "key", "relic"]).slice(0, 3 + this.rng.int(2));
+    let items: ShopItem[] = kinds.map(kind => ({ x: 0, y: CY - 10, kind, relic: null, price: kind === "relic" ? 7 + this.rng.int(4) : SHOP_PRICES[kind], sold: false }));
     for (const item of items) if (item.kind === "relic") {
       const relic = this.rollRelic();
-      if (relic === "heart") { item.kind = "container"; item.price = SHOP_PRICES.container; } else item.relic = relic;
+      if (relic !== "heart") item.relic = relic;
     }
+    // Every relic already held or on offer: the relic slot stays empty.
+    items = items.filter(item => item.kind !== "relic" || item.relic);
     items.forEach((item, i) => { item.x = CX + (i - (items.length - 1) / 2) * 140; });
     return items;
   }
 
   /**
-   * Crossing a Room of Pain door (in or out) costs half a heart. It is a toll, not a hit: no
-   * invulnerability, no knockback, and it never kills (at half a heart it leaves you at half a heart).
+   * Crossing a Room of Pain door (in or out) costs half a heart, paid in full. It is a toll, not a hit:
+   * it ignores invulnerability and grants none, with no knockback. At half a heart the toll is lethal
+   * and ends the run (the doors warn you first).
    */
   painCost() {
     const p = this.player;
+    if (this.status !== "playing") return;
     this.painCrossings++;
-    const paid = p.hp > 1;
-    p.hp = Math.max(1, p.hp - 1);
-    this.texts.push({ x: p.x, y: p.y - 44, text: paid ? "-½ ♥" : "spared", life: 1.1, color: "#ff3b4e" });
+    p.hp = Math.max(0, p.hp - 1);
+    this.texts.push({ x: p.x, y: p.y - 44, text: "-½ ♥", life: 1.1, color: "#ff3b4e" });
     this.sfx("hurt");
+    if (p.hp <= 0) this.die("pain");
+  }
+
+  /** Crossing door `d` of the current room would cost a toll that kills. */
+  lethalToll(d: Dir) {
+    const next = this.neighbour(d);
+    return Boolean(next) && (next!.kind === "pain" || this.room.kind === "pain") && this.player.hp <= 1;
+  }
+
+  private die(cause: "pain" | "hit") {
+    this.deathCause = cause;
+    this.status = "dead"; this.sfx("lose"); this.emit({ type: "dead" });
   }
 
   private enterRoom(room: Room, from: Dir | null) {
@@ -909,7 +927,7 @@ export class Game {
     if (!this.reducedMotion) this.shake = 0.25;
     if (source) { const push = norm(p.x - source.x, p.y - source.y); this.move(p, push.x * 24, push.y * 24, p.r, this.stats.flying, false); }
     this.burst(p.x, p.y - 20, "#ffffff", 10);
-    if (p.hp <= 0) { this.status = "dead"; this.sfx("lose"); this.emit({ type: "dead" }); }
+    if (p.hp <= 0) this.die("hit");
   }
 
   private damageEnemy(e: Enemy, amount: number) {
@@ -1212,7 +1230,6 @@ export class Game {
       case "half": p.hp = Math.min(s.maxHp, p.hp + 1); this.sfx("pickup"); break;
       case "heart": p.hp = Math.min(s.maxHp, p.hp + 2); this.sfx("pickup"); break;
       case "key": this.keys++; this.keysCollected++; this.sfx("pickup"); break;
-      case "container": this.takeRelic("heart"); break;
       case "relic": this.takeRelic(item.relic!); break;
     }
   }

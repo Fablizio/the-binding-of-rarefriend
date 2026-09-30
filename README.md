@@ -6,7 +6,7 @@
 another real Rare Friend.** Each Friend also has its own signature ability (from its sprite seed and
 token ID) and a generation rank: Gen 1 is Legendary (+1 heart, +15% damage, +10% fire rate and a gold
 outline), down to Gen 6 Standard with no bonus. Every floor has its own chiptune theme, an elite Friend and a boss
-introduced by a VS card, plus a shop, a Room of Pain (half a heart in, half a heart out) and, from floor 2, key-locked
+introduced by a VS card, plus a shop, a Room of Pain (half a heart in, half a heart out, and the toll can kill) and, from floor 2, key-locked
 treasure and shop rooms, with keys, chests and coins to find. Coins and keys are run-only game items: play stays 0 RF. By [Fablizio](https://github.com/Fablizio). Rare Friends Vibeathon entry built on FriendSDK v0.1.4.
 Genesis NFTs are a separate collection that FriendSDK v0.1.4 cannot select as a player; a Genesis-holder perk is on the roadmap.
 

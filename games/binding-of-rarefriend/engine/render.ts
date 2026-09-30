@@ -195,6 +195,17 @@ function paintDoor(ctx: CanvasRenderingContext2D, game: Game, d: Dir, open: bool
   if (pain) paintDrop(ctx, cx, cy, 1);
   if (target?.kind === "shop" && !target.locked) paintCoin(ctx, cx, cy, 7);
   if (target?.locked) paintPadlock(ctx, cx, cy, 1.4);
+  if (game.lethalToll(d)) {
+    // The toll would kill: a red LETHAL tag on the room side of the door (you can still walk through).
+    const [tx, ty] = d === "up" ? [x + 240, y + 26] : d === "down" ? [x + 240, y - 30] : d === "left" ? [x + 76, y - 52] : [x - 76, y - 52];
+    ctx.font = "bold 14px ui-monospace, monospace"; ctx.textAlign = "center";
+    const lines = ["LETHAL", "-½ ♥ = death"];
+    const w2 = 118;
+    ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.fillRect(tx - w2 / 2, ty - 16, w2, 38);
+    ctx.strokeStyle = "#ff2e4d"; ctx.lineWidth = 2; ctx.strokeRect(tx - w2 / 2, ty - 16, w2, 38);
+    ctx.fillStyle = "#ff2e4d"; ctx.fillText(lines[0], tx, ty);
+    ctx.fillStyle = "#ffd0d6"; ctx.font = "bold 12px ui-monospace, monospace"; ctx.fillText(lines[1], tx, ty + 16);
+  }
 }
 
 /** A gold padlock (locked doors and chests). */
@@ -260,13 +271,12 @@ function paintShopItem(ctx: CanvasRenderingContext2D, game: Game, item: ShopItem
   switch (item.kind) {
     case "half": paintHeart(ctx, item.x - 10, gy - 9, 1, 3); break;
     case "heart": paintHeart(ctx, item.x - 10, gy - 9, 2, 3); break;
-    case "container": paintHeart(ctx, item.x - 14, gy - 12, 2, 4); ctx.fillStyle = "#fff"; ctx.fillRect(item.x + 8, gy - 16, 10, 3); ctx.fillRect(item.x + 11.5, gy - 19.5, 3, 10); break;
     case "key": paintKey(ctx, item.x - 3, gy, 1.3); break;
     case "relic":
       ctx.fillStyle = "#ccff00"; ctx.beginPath(); ctx.moveTo(item.x, gy - 16); ctx.lineTo(item.x + 14, gy); ctx.lineTo(item.x, gy + 16); ctx.lineTo(item.x - 14, gy); ctx.fill();
       ctx.strokeStyle = "#000"; ctx.lineWidth = 3; ctx.stroke(); break;
   }
-  const name = item.kind === "relic" ? RELICS.find(r => r.id === item.relic)!.name : item.kind === "container" ? "Heart container" : item.kind === "half" ? "Half heart" : item.kind === "heart" ? "Heart" : "Key";
+  const name = item.kind === "relic" ? RELICS.find(r => r.id === item.relic)!.name : item.kind === "half" ? "Half heart" : item.kind === "heart" ? "Heart" : "Key";
   const afford = game.coins >= item.price;
   ctx.font = "bold 12px ui-monospace, monospace"; ctx.textAlign = "center";
   ctx.fillStyle = "#000"; ctx.fillText(name, item.x + 1, item.y + 29); ctx.fillStyle = "#fff"; ctx.fillText(name, item.x, item.y + 28);

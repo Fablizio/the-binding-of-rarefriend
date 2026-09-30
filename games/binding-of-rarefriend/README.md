@@ -78,14 +78,18 @@ menus.
 - **Coins** (HUD counter) come from chests, and cleared fight rooms drop one about 25% of the time.
   They are spent in the shop.
 - **Shop:** one per floor, with 3–4 items on pedestals and price tags: half heart **2**, heart **3**,
-  key **4**, heart container (+1 max heart) **8**, a relic **7–10** (from the relic pool, never one you
-  hold or one already on offer). Walk over an item to buy it; without enough coins it says "need N
+  key **4**, a relic **7–10** (from the relic pool, never one you hold or one already on offer). The shop
+  never sells heart containers; those still come from relics and bosses. Walk over an item to buy it; without enough coins it says "need N
   coins", and hearts are not sold while your health is full. Bought items disappear. Walking is buying,
   so keyboard and touch work the same.
 - **Room of Pain:** at most one per floor, off a dead end, behind a spiked red door with a blood drop.
   **Crossing its door costs half a heart each way** (in and out, one heart for the round trip), shown
-  as a floating "-½ ♥" with the hurt sound. It is a toll, not a hit: no invulnerability, no knockback,
-  and **it can never kill you: at half a heart the toll leaves you at half a heart**. The floor's
+  as a floating "-½ ♥" with the hurt sound. It is a toll, not a hit: it ignores invulnerability, grants
+  none and has no knockback. **The toll is paid in full and can kill**: at half a heart, crossing ends
+  the run (the end screen names the Room of Pain). When the toll would be lethal, the pain door and the
+  exit door show a red **LETHAL · -½ ♥ = death** tag, but you can still walk through. Example: enter with
+  1½ hearts (→ 1 heart), take a hit inside (→ ½ heart), and leaving would kill you, so you must heal
+  inside first (a reward room's chest may hold a heart) or the run is over. The floor's
   seeded RNG decides what waits inside: either a **tougher fight** (an arena, two more Friends, many
   of them elites; the doors lock until it is cleared, then a relic rises) or a **reward room** (a
   relic on a pedestal plus an open or locked chest).
@@ -260,8 +264,9 @@ Run from the SDK root. All of these were run for the current version and pass.
   empty room). On 400 more floors it checks one shop and one Room of Pain per floor, every room
   connected with two-way doors, the boss reachable without keys or tolls, the treasure room, shop,
   Room of Pain and boss room as dead ends, locks only from floor 2, and the same layout for the same
-  seed. It checks the pain toll directly (6→5→4, and 1 stays 1, never a hit), fails any bot run where
-  a toll kills or where a floor-2+ first cleared fight room gave no key, and reports loot per floor. It checks that signatures are deterministic and evenly spread over 20,000 token IDs.
+  seed. It checks the pain toll directly (6→5→4, 1½ hearts → 1 heart, and a toll at half a heart kills
+  with the Room of Pain as the cause, never as a hit, with the lethal warning on the exit door), fails
+  any bot run where a floor-2+ first cleared fight room gave no key, and reports loot per floor. It checks that signatures are deterministic and evenly spread over 20,000 token IDs.
   Then a headless bot plays 54 full runs (all nine player families, invulnerable and normal, cycling
   through all eight signatures and generation ranks) and 72 more balance runs (every signature with
   the same nine seeds), then 18 runs as generation 1 and the same 18 as generation 6. It also checks
@@ -274,16 +279,19 @@ Run from the SDK root. All of these were run for the current version and pass.
   mostly to the first boss (20 of 27 runs). On the same 18 seeds it reaches floor 2.33 on average as
   generation 1 (Legendary) and 1.39 as generation 6.
   After keys, chests, coins, shops and Rooms of Pain (the bot picks up coins, keys and chests, uses
-  keys, buys relics, containers, keys and hearts it can afford, and pays the pain toll with at least
-  two hearts): the invulnerable bot still clears 27/27; the normal bot reaches floor 1.78 on average
-  (1.63 before; +0.15, from shop hearts and the extra relics), dying mostly to bosses (16 of 27). The invulnerable bot finds about 5.5 coins, 1.5 keys and 1.3 chests a floor and opens 53 locks (doors and chests) over 27 runs.
+  keys, buys relics, keys and hearts it can afford, enters a Room of Pain only with at least two hearts
+  and heads for hearts there at half a heart): the invulnerable bot still clears 27/27; the normal bot
+  reaches floor 1.63 on average (1.63 before), dying mostly to bosses (18 of 27, one inside a Room of
+  Pain, none to the toll itself). The invulnerable bot finds about 6.4 coins, 1.6 keys and 1.5 chests a
+  floor and opens 65 locks (doors and chests) over 27 runs.
 - `node games/binding-of-rarefriend/tests/browser.mjs`: real SDK runtime in headless Chromium with the
   SDK's mock wallet and RPC fixtures, extended to answer the artwork registry and Multicall3 for many
   IDs (the fixture reports generation 1). Checks desktop, phone landscape and phone portrait for browser
   errors, including the music scheduler. It covers the title card, an elite room (arena layout, one
   elite), the boss **VS card** (the room must stay frozen behind it and a key or tap must skip it), a
   floor-1 shop (open, 3–4 items), floor-2 locks (treasure and shop locked, the door stays shut without a
-  key) with an open and a locked chest, a Room of Pain door and its entry toll, the
+  key) with an open and a locked chest, a Room of Pain door and its entry toll, the LETHAL warning at
+  half a heart, a death by the toll (the end screen names the Room of Pain), the
   victory and death screens and the **Copy result** text and button. It takes screenshots
   (`media/vs.png` comes from it).
 - `node games/binding-of-rarefriend/tests/run-visual.mjs`: renders mid-combat and boss frames for
