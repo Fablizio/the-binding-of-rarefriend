@@ -58,7 +58,7 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
   const [musicOn, setMusicOn] = useState(true);
   /** Bumped by every roster load, so a slow load that was superseded (New cast twice, Friend change) is ignored. */
   const loadToken = useRef(0);
-  const [summary, setSummary] = useState<{ depth: number; kills: number; sparks: number; time: number; defeated: Defeated[]; floors: number } | null>(null);
+  const [summary, setSummary] = useState<{ depth: number; kills: number; sparks: number; coins: number; keys: number; time: number; defeated: Defeated[]; floors: number } | null>(null);
   const [generation, setGeneration] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const shareRef = useRef<HTMLTextAreaElement>(null);
@@ -160,7 +160,7 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
               vsOpen.current = true;
               setVs({ boss: event.enemy.sprites, floorName: game.theme.floorName, accent: game.theme.accent, key: now });
             } else if (event.type === "dead" || event.type === "won") {
-              setSummary({ depth: game.depth, kills: game.kills, sparks: game.sparks, time: game.time, defeated: [...game.defeated], floors: game.floors });
+              setSummary({ depth: game.depth, kills: game.kills, sparks: game.sparks, coins: game.coinsCollected, keys: game.keysCollected, time: game.time, defeated: [...game.defeated], floors: game.floors });
               setPhase(event.type); clearInput();
               audioRef.current?.jingle(event.type === "won" ? "win" : "lose");
             }
@@ -340,7 +340,7 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
       {phase === "won" && <Portrait sprites={player} scale={6} halo="#ccff00" label={`Your Friend number ${id}, victorious`} />}
       <p className="bor-descent">{phase === "won" ? `The crypt remembers Friend #${id}.` : `The crypt keeps Friend #${id}, until the next descent.`}</p>
       <p>{phase === "won" ? `Friend #${id} broke free of all ${summary.floors} floors, and every keeper bowed.` : `Friend #${id} fell on floor ${summary.depth + 1}, ${THEMES[roster!.floors[summary.depth].family].floorName}.`}</p>
-      <p className="bor-stats">{summary.kills} kills · {summary.sparks} sparks · {formatTime(summary.time)}{signature ? ` · ${signature.name}` : ""}</p>
+      <p className="bor-stats">{summary.kills} kills · {summary.sparks} sparks · {summary.coins} coins · {summary.keys} keys · {formatTime(summary.time)}{signature ? ` · ${signature.name}` : ""}</p>
       {summary.defeated.length > 0 && <>
         <h2>{phase === "won" ? `They bow to Friend #${id} (${summary.defeated.length})` : `Friends you defeated (${summary.defeated.length})`}</h2>
         <ul className={`bor-gallery${phase === "won" ? " bow" : ""}${reducedMotion ? " still" : ""}`}>
@@ -369,7 +369,7 @@ export default function BindingOfRareFriend({ friendId, client, paused }: GameCo
         <button type="button" className="rf-frame-primary" disabled={paused} onClick={() => { audioRef.current?.wake(); setMenu(null); }}>Resume</button>
         <button type="button" disabled={paused} onClick={() => { gameRef.current = null; setMenu(null); setPhase("title"); }}>Quit run</button>
       </div>
-      <p className="bor-small">No RF is spent or won. Progress lasts for this run only.</p>
+      <p className="bor-small">No RF is spent or won. Coins, keys, relics and progress last for this run only.</p>
     </GameMenu>}
     {menu === "settings" && <GameMenu title="Settings" onClose={() => setMenu(null)}>
       <label><input type="checkbox" checked={muted} disabled={paused} onChange={event => setMuted(event.target.checked)} /> Mute sound</label>

@@ -51,6 +51,9 @@ function nextDoor(game: Game): Dir | null {
     if (r !== start && !r.visited) { goal = r; break; }
     for (const d of Object.keys(r.doors) as Dir[]) {
       const n = game.floor.rooms.get(key(r.gx + STEP[d][0], r.gy + STEP[d][1]))!;
+      // Locked rooms only with a key in hand; the Room of Pain only with at least two hearts to pay the toll.
+      if (n.locked && game.keys <= 0) continue;
+      if (n.kind === "pain" && !n.visited && game.player.hp < 4) continue;
       if (!prev.has(n)) { prev.set(n, [r, d]); q.push(n); }
     }
   }
@@ -86,9 +89,15 @@ export function botInput(game: Game, input: Input) {
       if (target) target = { x: Math.max(IN_X + 20, Math.min(IN_X + 700, target.x)), y: Math.max(IN_Y + 20, Math.min(IN_Y + 370, target.y)) };
     } else {
       const ped = game.state.pedestal;
-      const pick = game.state.pickups.find(x => x.kind === "spark");
+      const lockedLeft = [...game.floor.rooms.values()].some(r => r.locked && !r.visited);
+      const pick = game.state.pickups.find(x => x.kind === "spark" || x.kind === "coin" || x.kind === "key" || x.kind === "chest" || (x.kind === "lockedChest" && game.keys > 0));
+      // In a shop, buy what helps and is affordable: a relic, a heart container, a key for a locked room, a heart when hurt.
+      const hurt = game.player.hp <= game.stats.maxHp - 2;
+      const want = game.state.shop.filter(item => !item.sold && item.price <= game.coins
+        && (item.kind === "relic" || item.kind === "container" || (item.kind === "key" && lockedLeft) || ((item.kind === "heart" || item.kind === "half") && hurt)));
       if (ped && !ped.taken) target = ped;
       else if (pick) target = pick;
+      else if (want.length) target = want[0];
       else if (game.state.trapdoor) target = { x: CX, y: CY };
       else {
         const d = nextDoor(game);
@@ -109,13 +118,27 @@ export function run(seed: number, family: FamilyId, families: FamilyId[], god: b
   const dt = 1 / 60;
   let t = 0, stuck = 0, last = { x: 0, y: 0 }, lastRoom = game.room, roomTime = 0;
   const log: string[] = [];
+  const keyChecked = new Set<number>();
+  const visits = { shop: 0, pain: 0, treasure: 0, lockedTreasure: 0 };
   while (game.status === "playing" && t < 60 * 40) {
     t += dt; roomTime += dt;
     if (game.room !== lastRoom) { lastRoom = game.room; roomTime = 0; }
     if (god) game.player.invuln = 1;
     const enemies = botInput(game, input);
     const p = game.player;
+    const pain = game.painCrossings, hpBefore = game.player.hp;
     game.update(dt, input);
+    if (game.painCrossings > pain && ((game.status as string) === "dead" || game.player.hp < 1)) log.push(`PAINKILL hp ${hpBefore} -> ${game.player.hp}`);
+    if (game.room !== lastRoom && game.room.visited) {
+      const kind = game.room.kind;
+      if (kind === "shop" || kind === "pain" || kind === "treasure") visits[kind]++;
+      if (kind === "treasure" && game.depth >= 1) visits.lockedTreasure++;
+    }
+    // From floor 2 on, the first cleared fight room must have dropped a key (unless one dropped earlier on the floor).
+    if (game.depth >= 1 && !keyChecked.has(game.depth) && [...game.floor.rooms.values()].some(r => r.kind === "normal" && r.cleared)) {
+      keyChecked.add(game.depth);
+      if (game.floorKeyDrops < 1) log.push(`KEYFAIL floor ${game.depth + 1}`);
+    }
     if (onTick && onTick(game, t)) break;
     for (const ev of game.drainEvents()) if (ev.type === "floor" || ev.type === "boss" || ev.type === "toast") log.push(`${t.toFixed(0)}s ${ev.type}${"title" in ev ? " " + ev.title : ""}`);
     if (Math.hypot(p.x - last.x, p.y - last.y) < 0.01 && !enemies.length) stuck += dt; else stuck = 0;
@@ -123,5 +146,29 @@ export function run(seed: number, family: FamilyId, families: FamilyId[], god: b
     if (stuck > 8 || roomTime > 120) { log.push(`STUCK in ${game.room.kind} room at ${p.x.toFixed(0)},${p.y.toFixed(0)} enemies=${game.state.enemies.map(e => `${e.kind}:${e.state}:a${e.alpha.toFixed(1)}:hp${e.hp.toFixed(1)}@${e.x.toFixed(0)},${e.y.toFixed(0)}`).join(' ')}`); break; }
   }
   return { status: game.status, depth: game.depth, time: t, kills: game.kills, defeated: game.defeated.length, hp: game.player.hp, relics: game.relics,
+    coins: game.coinsCollected, keys: game.keysCollected, unlocks: game.unlocks, chests: game.chestsOpened, bought: game.bought, pain: game.painCrossings, visits,
     signature: game.signature.id, generation: game.genBonus?.generation ?? null, endRoom: game.room.special ? "elite" : game.room.kind, log };
+}
+
+/** Pain tolls: half a heart in, half a heart out, never below half a heart, never a hit. */
+export function painCheck() {
+  const game = new Game(fakeSprites(7730, 0), 0, fakeRoster([0, 1, 2, 3]), 99);
+  game.reducedMotion = true;
+  const input: Input = { keys: new Set(), move: null, aim: null };
+  const pain = game.floor.painRoom!;
+  const door = (Object.keys(pain.doors) as Dir[])[0];
+  const results: { hp: number; invuln: number; status: string; room: string }[] = [];
+  const cross = (room: Room, from: Dir, hp: number) => {
+    game.player.hp = hp; game.player.invuln = 0;
+    game.pendingRoom = { room, from };
+    game.update(1 / 60, input);
+    results.push({ hp: game.player.hp, invuln: game.player.invuln, status: game.status, room: game.room.kind });
+  };
+  const parent = game.floor.rooms.get(key(pain.gx + STEP[door][0], pain.gy + STEP[door][1]))!;
+  cross(pain, door, 6);          // in: 6 -> 5
+  cross(parent, OPPOSITE[door], 5); // out: 5 -> 4
+  cross(pain, door, 1);          // in at half a heart: stays at 1
+  cross(parent, OPPOSITE[door], 1); // out at half a heart: stays at 1
+  cross(pain, door, 2);          // in at one heart: 2 -> 1
+  return { results, crossings: game.painCrossings };
 }

@@ -8,7 +8,7 @@ export const DIRS: readonly Dir[] = ["up", "down", "left", "right"];
 export const STEP: Readonly<Record<Dir, readonly [number, number]>> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 export const OPPOSITE: Readonly<Record<Dir, Dir>> = { up: "down", down: "up", left: "right", right: "left" };
 
-export type RoomKind = "start" | "normal" | "treasure" | "boss";
+export type RoomKind = "start" | "normal" | "treasure" | "boss" | "shop" | "pain";
 /** 0 floor, 1 rock (blocks walkers and shots), 2 pit (blocks walkers only). */
 export type Tile = 0 | 1 | 2;
 export type Room = {
@@ -19,8 +19,12 @@ export type Room = {
   distance: number;
   /** The floor's elite room: one normal room far from the start holds the floor's special Friend. */
   special: boolean;
+  /** Needs a key to enter (treasure room and shop from floor 2 on). Unlocked for good once opened. */
+  locked: boolean;
+  /** Room of Pain contents, set by the floor's seeded RNG: a tougher fight or a reward room. */
+  pain: "fight" | "reward" | null;
 };
-export type Floor = { rooms: Map<string, Room>; start: Room; boss: Room; treasure: Room | null; special: Room | null };
+export type Floor = { rooms: Map<string, Room>; start: Room; boss: Room; treasure: Room | null; special: Room | null; shop: Room | null; painRoom: Room | null };
 export const key = (gx: number, gy: number) => `${gx},${gy}`;
 
 // Templates: R rock, P pit. Door approaches are forced clear and every layout is checked for connectivity.
@@ -151,15 +155,46 @@ export function generateFloor(rng: Rng, depth: number, family = 0): Floor {
       .sort((a, b) => distance.get(key(...b))! - distance.get(key(...a))!);
     if (deadEnds.length < 2 || distance.get(key(...deadEnds[0]))! < 3) continue;
     const bossCell = deadEnds[0], treasureCell = deadEnds[1];
+    // The shop and the Room of Pain are extra dead ends grown off a fight room (never the boss or treasure
+    // room), so neither ever sits on the way to the boss and the fight count stays the same.
+    const leaf = () => {
+      const options: [number, number, number][] = [];
+      for (const [x, y] of cells.values()) {
+        const k = key(x, y);
+        if (k === key(...bossCell) || k === key(...treasureCell) || extra.has(k)) continue;
+        for (const d of DIRS) {
+          const nx = x + STEP[d][0], ny = y + STEP[d][1];
+          if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID || cells.has(key(nx, ny)) || neighbours(nx, ny) !== 1) continue;
+          options.push([nx, ny, k === key(center, center) ? 1 : 0]);
+        }
+      }
+      const fights = options.filter(option => option[2] === 0);
+      const pool = fights.length ? fights : options;
+      if (!pool.length) return null;
+      const [nx, ny] = rng.pick(pool);
+      const parent = DIRS.map(d => key(nx - STEP[d][0], ny - STEP[d][1])).find(k => cells.has(k))!;
+      cells.set(key(nx, ny), [nx, ny]); distance.set(key(nx, ny), distance.get(parent)! + 1);
+      return key(nx, ny);
+    };
+    const extra = new Set<string>();
+    const shopKey = leaf();
+    if (shopKey) extra.add(shopKey);
+    const painKey = leaf();
+    if (!shopKey || !painKey) continue;
+    const painKind: "fight" | "reward" = rng.chance(0.5) ? "fight" : "reward";
     const rooms = new Map<string, Room>();
     for (const [x, y] of cells.values()) {
       const k = key(x, y);
-      const kind: RoomKind = k === key(center, center) ? "start" : k === key(...bossCell) ? "boss" : k === key(...treasureCell) ? "treasure" : "normal";
+      const kind: RoomKind = k === key(center, center) ? "start" : k === key(...bossCell) ? "boss" : k === key(...treasureCell) ? "treasure"
+        : k === shopKey ? "shop" : k === painKey ? "pain" : "normal";
       const doors = DIRS.filter(d => cells.has(key(x + STEP[d][0], y + STEP[d][1])));
+      const pain = kind === "pain" ? painKind : null;
       rooms.set(k, {
         gx: x, gy: y, kind, doors: Object.fromEntries(doors.map(d => [d, true])),
-        tiles: makeTiles(kind, doors, rng, family), visited: false, seen: false, cleared: kind !== "normal" && kind !== "boss",
+        tiles: pain === "fight" ? makeTiles("normal", doors, rng, family, true) : makeTiles(kind, doors, rng, family),
+        visited: false, seen: false, cleared: kind !== "normal" && kind !== "boss" && pain !== "fight",
         distance: distance.get(k)!, special: false,
+        locked: depth >= 1 && (kind === "treasure" || kind === "shop"), pain,
       });
     }
     // The elite room: the normal room farthest from the start (ties broken at random), in an arena layout.
@@ -169,7 +204,8 @@ export function generateFloor(rng: Rng, depth: number, family = 0): Floor {
       special.special = true;
       special.tiles = makeTiles("normal", DIRS.filter(d => special.doors[d]), rng, family, true);
     }
-    return { rooms, start: rooms.get(key(center, center))!, boss: rooms.get(key(...bossCell))!, treasure: rooms.get(key(...treasureCell)) ?? null, special };
+    return { rooms, start: rooms.get(key(center, center))!, boss: rooms.get(key(...bossCell))!, treasure: rooms.get(key(...treasureCell)) ?? null, special,
+      shop: rooms.get(shopKey) ?? null, painRoom: rooms.get(painKey) ?? null };
   }
   throw new Error("Could not generate a floor.");
 }

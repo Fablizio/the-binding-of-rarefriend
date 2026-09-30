@@ -54,8 +54,43 @@ menus.
 ## Rules
 
 - A run is **4 floors**. Each floor is a grid of single-screen rooms: a start room, fights, one
-  **treasure room** (gold door) and a **boss room** (red door, farthest from the start).
+  **treasure room** (gold door), one **shop** (green door, green dot on the minimap), one **Room of
+  Pain** (spiked red door with a drop, red drop on the minimap) and a **boss room** (red door with a
+  skull, farthest from the start). The treasure room, shop and Room of Pain are dead ends, so the way
+  to the boss never needs a key or a toll.
 - Doors lock until every Friend in the room is defeated. Clearing a room may drop a heart or a spark.
+
+### Keys, locked rooms, chests and coins
+
+- **Keys** (HUD counter next to sparks and coins): cleared fight rooms drop one about 12% of the
+  time, some chests hold one, and the shop sells one for 4 coins. **From floor 2 on, the first fight
+  room you clear on a floor always drops a key** if none has dropped there yet, so a locked room is
+  always reachable.
+- **Locked doors:** on floor 1 the treasure room and the shop are open. **From floor 2 on both are
+  locked**: the door shows a padlock (and the minimap a small lock). Walk into it with a key to open it
+  for good (one key, with a click); without a key the game says "needs a key". The boss room and the
+  Room of Pain never need a key.
+- **Chests** are rare, about one or two a floor: 4% of regular kills drop one (at most three a floor),
+  the floor's elite drops one 35% of the time, and a reward Room of Pain always has one. About 40% are
+  **locked chests** (grey with a gold padlock, need a key); the rest are **open chests** (brown, open on
+  touch). An open chest spills 1–4 coins and sometimes a half heart (25%) or a key (15%). A locked
+  chest spills 3–7 coins, plus a relic (30%) or a heart (35%).
+- **Coins** (HUD counter) come from chests, and cleared fight rooms drop one about 25% of the time.
+  They are spent in the shop.
+- **Shop:** one per floor, with 3–4 items on pedestals and price tags: half heart **2**, heart **3**,
+  key **4**, heart container (+1 max heart) **8**, a relic **7–10** (from the relic pool, never one you
+  hold or one already on offer). Walk over an item to buy it; without enough coins it says "need N
+  coins", and hearts are not sold while your health is full. Bought items disappear. Walking is buying,
+  so keyboard and touch work the same.
+- **Room of Pain:** at most one per floor, off a dead end, behind a spiked red door with a blood drop.
+  **Crossing its door costs half a heart each way** (in and out, one heart for the round trip), shown
+  as a floating "-½ ♥" with the hurt sound. It is a toll, not a hit: no invulnerability, no knockback,
+  and **it can never kill you: at half a heart the toll leaves you at half a heart**. The floor's
+  seeded RNG decides what waits inside: either a **tougher fight** (an arena, two more Friends, many
+  of them elites; the doors lock until it is cleared, then a relic rises) or a **reward room** (a
+  relic on a pedestal plus an open or locked chest).
+- Coins, keys and chests are **run-only** and reset with every run. They are not RF and never touch
+  the wallet; the end screen lists the coins and keys you collected.
 - Each floor has one **elite room** (gold diamond on the minimap), the normal room farthest from the
   start, in an arena layout. Its **elite** is a real Friend of the floor's family at 4× size with a gold
   halo, a health bar, more health and one extra family move (table below). It always drops a reward: a
@@ -67,7 +102,7 @@ menus.
   the way out.
 - You start with 3 hearts. Contact and enemy shots cost half a heart (bosses a full heart from
   floor 2). Brief invulnerability follows each hit. Zero hearts ends the run.
-- Relics (treasure rooms and bosses) stack: Bone Marrow (+1 heart), Spare Mask (+damage), Family
+- Relics (treasure rooms, bosses, the shop, locked chests and Rooms of Pain) stack: Bone Marrow (+1 heart), Spare Mask (+damage), Family
   Photo (familiar), Petri Dish (split shots), Crooked Lens (fire rate), Hover Boots (flight), Colossal
   Knuckle (big shots), Sparkle Dust (shot speed and range), Hollow Heart (speed, invulnerability),
   Signal Green (homing).
@@ -203,12 +238,14 @@ player keeps the canonical black mask and white halo (plus a gold outline around
 ## Economy
 
 **Play is free: 0 RF.** There are no purchases, consumables or rewards, and nothing is simulated as
-RF. Sparks and relics are run-only and reset on reload. The SDK v0.1.4 runtime still requires a
+RF. Sparks, coins, keys, chests, shop items and relics are run-only game items and reset with every
+run; shop prices are in those run-only coins, never RF. The SDK v0.1.4 runtime still requires a
 chance-game `game.json`, so this directory includes **unused schema-only terms** (a 1 RF token with a
 single 100% / 10,000 bps reward of 1 RF, both `1000000000000000000` base units). The component never
 calls `buy`, `play`, `settle` or `redeem`.
 
-Future RF ideas, not implemented: an RF-priced "second chance" heart, RF-backed cosmetic halos
+Future RF ideas, not implemented: RF-backed shop coins (the shop is built so its coin prices could
+later be backed by RF through a proper integration), an RF-priced "second chance" heart, RF-backed cosmetic halos
 for your Friend, and a weekly seeded "daily crypt" with an RF-funded prize pool. Each would need
 custom integration beyond the v0.1.4 bridge, which has no persistence, upgrade or extra-currency APIs.
 
@@ -220,7 +257,11 @@ Run from the SDK root. All of these were run for the current version and pass.
 - `npx tsc -p games/binding-of-rarefriend/tsconfig.json`: strict typecheck.
 - `node games/binding-of-rarefriend/tests/run-sim.mjs`: checks that all 31 layouts are 13×7 and
   fully connected, and that 300 generated floors each have an elite room (with no fallback to an
-  empty room). It checks that signatures are deterministic and evenly spread over 20,000 token IDs.
+  empty room). On 400 more floors it checks one shop and one Room of Pain per floor, every room
+  connected with two-way doors, the boss reachable without keys or tolls, the treasure room, shop,
+  Room of Pain and boss room as dead ends, locks only from floor 2, and the same layout for the same
+  seed. It checks the pain toll directly (6→5→4, and 1 stays 1, never a hit), fails any bot run where
+  a toll kills or where a floor-2+ first cleared fight room gave no key, and reports loot per floor. It checks that signatures are deterministic and evenly spread over 20,000 token IDs.
   Then a headless bot plays 54 full runs (all nine player families, invulnerable and normal, cycling
   through all eight signatures and generation ranks) and 72 more balance runs (every signature with
   the same nine seeds), then 18 runs as generation 1 and the same 18 as generation 6. It also checks
@@ -232,11 +273,17 @@ Run from the SDK root. All of these were run for the current version and pass.
   which never dodges, now reaches floor 1.63 on average (2.37 before), 1.2–1.7 per signature, and dies
   mostly to the first boss (20 of 27 runs). On the same 18 seeds it reaches floor 2.33 on average as
   generation 1 (Legendary) and 1.39 as generation 6.
+  After keys, chests, coins, shops and Rooms of Pain (the bot picks up coins, keys and chests, uses
+  keys, buys relics, containers, keys and hearts it can afford, and pays the pain toll with at least
+  two hearts): the invulnerable bot still clears 27/27; the normal bot reaches floor 1.78 on average
+  (1.63 before; +0.15, from shop hearts and the extra relics), dying mostly to bosses (16 of 27). The invulnerable bot finds about 5.5 coins, 1.5 keys and 1.3 chests a floor and opens 53 locks (doors and chests) over 27 runs.
 - `node games/binding-of-rarefriend/tests/browser.mjs`: real SDK runtime in headless Chromium with the
   SDK's mock wallet and RPC fixtures, extended to answer the artwork registry and Multicall3 for many
   IDs (the fixture reports generation 1). Checks desktop, phone landscape and phone portrait for browser
   errors, including the music scheduler. It covers the title card, an elite room (arena layout, one
-  elite), the boss **VS card** (the room must stay frozen behind it and a key or tap must skip it), the
+  elite), the boss **VS card** (the room must stay frozen behind it and a key or tap must skip it), a
+  floor-1 shop (open, 3–4 items), floor-2 locks (treasure and shop locked, the door stays shut without a
+  key) with an open and a locked chest, a Room of Pain door and its entry toll, the
   victory and death screens and the **Copy result** text and button. It takes screenshots
   (`media/vs.png` comes from it).
 - `node games/binding-of-rarefriend/tests/run-visual.mjs`: renders mid-combat and boss frames for

@@ -3,7 +3,7 @@ import { createFriendSoundKit, type FriendSoundKit } from "@rarefriends/friendsd
 import { Music } from "./music";
 import type { FamilyId } from "./themes";
 
-export type Sfx = "shoot" | "hit" | "kill" | "hurt" | "door" | "pickup" | "relic" | "boss" | "stairs" | "enemyShot" | "win" | "lose";
+export type Sfx = "shoot" | "hit" | "kill" | "hurt" | "door" | "pickup" | "relic" | "boss" | "stairs" | "enemyShot" | "win" | "lose" | "coin" | "unlock";
 
 export class Audio {
   private ctx: AudioContext | null = null;
@@ -110,6 +110,8 @@ export class Audio {
       case "stairs": this.kit.play("action-start"); break;
       case "win": this.kit.play("reveal-legendary"); break;
       case "lose": this.tone("triangle", 330, 110, 0.9, 0.22); break;
+      case "coin": this.tone("square", 988, 988, 0.05, 0.08); this.tone("square", 1319, 1319, 0.12, 0.08, 0.05); break;
+      case "unlock": this.noise(0.05, 0.2, 3000); this.tone("square", 440, 440, 0.06, 0.1, 0.04); this.tone("triangle", 660, 880, 0.14, 0.14, 0.1); break;
     }
   }
 

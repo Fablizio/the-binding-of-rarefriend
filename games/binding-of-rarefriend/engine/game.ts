@@ -51,7 +51,15 @@ export type Enemy = {
   decoy: boolean;
   facing: SpriteFacing; side: "left" | "right"; moving: boolean;
 };
-export type PickupKind = "heart" | "half" | "spark";
+export type PickupKind = "heart" | "half" | "spark" | "coin" | "key" | "chest" | "lockedChest";
+/** Shop stock. Prices are in run-only coins (never RF). */
+export type ShopKind = "half" | "heart" | "key" | "container" | "relic";
+export type ShopItem = { x: number; y: number; kind: ShopKind; relic: RelicId | null; price: number; sold: boolean };
+export const SHOP_PRICES: Readonly<Record<Exclude<ShopKind, "relic">, number>> = { half: 2, heart: 3, key: 4, container: 8 };
+/** Drop tuning for keys, coins and chests (all run-only). */
+export const LOOT = {
+  clearKey: 0.12, clearCoin: 0.25, killChest: 0.04, eliteChest: 0.35, lockedShare: 0.4, killChestsPerFloor: 3,
+} as const;
 export type Pickup = { x: number; y: number; kind: PickupKind; t: number };
 export type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; size: number };
 export type FloatText = { x: number; y: number; text: string; life: number; color: string };
@@ -89,7 +97,7 @@ export type GameEvent =
   | { type: "boss"; enemy: Enemy }
   | { type: "floor"; depth: number };
 
-type RoomState = { enemies: Enemy[]; pickups: Pickup[]; pedestal: Pedestal | null; trapdoor: boolean };
+type RoomState = { enemies: Enemy[]; pickups: Pickup[]; pedestal: Pedestal | null; trapdoor: boolean; shop: ShopItem[] };
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const dist = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -114,6 +122,21 @@ export class Game {
   texts: FloatText[] = [];
   sparks = 0;
   kills = 0;
+  /** Run-only loot: coins and keys held, and totals collected for the end screen. */
+  coins = 0;
+  keys = 0;
+  coinsCollected = 0;
+  keysCollected = 0;
+  /** This floor: keys dropped (for the floor-2+ key guarantee) and chests dropped by kills. */
+  floorKeyDrops = 0;
+  floorKillChests = 0;
+  /** Counters for tests: doors unlocked, chests opened, items bought, pain doors crossed. */
+  unlocks = 0;
+  chestsOpened = 0;
+  bought = 0;
+  painCrossings = 0;
+  private hintCd = 0;
+  private keyTipShown = false;
   defeated: Defeated[] = [];
   status: "playing" | "dead" | "won" = "playing";
   time = 0;
@@ -183,9 +206,19 @@ export class Game {
     this.depth = depth;
     this.floor = generateFloor(this.rng, depth, this.cast.family);
     this.roomStates = new Map();
-    for (const room of this.floor.rooms.values()) this.roomStates.set(room, { enemies: [], pickups: [], pedestal: null, trapdoor: false });
+    for (const room of this.floor.rooms.values()) this.roomStates.set(room, { enemies: [], pickups: [], pedestal: null, trapdoor: false, shop: [] });
+    this.floorKeyDrops = 0; this.floorKillChests = 0;
     const treasure = this.floor.treasure;
     if (treasure) this.roomStates.get(treasure)!.pedestal = { x: CX, y: CY, relic: this.rollRelic(), taken: false };
+    const shop = this.floor.shop;
+    if (shop) this.roomStates.get(shop)!.shop = this.stockShop();
+    const pain = this.floor.painRoom;
+    if (pain?.pain === "reward") {
+      // Reward Room of Pain: a relic on a pedestal and a chest (open or locked).
+      const state = this.roomStates.get(pain)!;
+      state.pedestal = { x: CX, y: CY - 20, relic: this.rollRelic(), taken: false };
+      state.pickups.push({ x: CX, y: CY + 100, kind: this.rng.chance(0.5) ? "lockedChest" : "chest", t: 0 });
+    }
     this.tears = []; this.particles = [];
     this.player.x = CX; this.player.y = CY + 40;
     this.trail = [];
@@ -197,11 +230,39 @@ export class Game {
 
   private rollRelic(): RelicId | "heart" {
     const taken = new Set(this.relics);
-    for (const state of this.roomStates?.values() ?? []) if (state.pedestal && typeof state.pedestal.relic === "string") taken.add(state.pedestal.relic as RelicId);
+    for (const state of this.roomStates?.values() ?? []) {
+      if (state.pedestal && state.pedestal.relic !== "heart") taken.add(state.pedestal.relic);
+      for (const item of state.shop) if (item.relic) taken.add(item.relic);
+    }
     const pool = RELICS.filter(relic => !taken.has(relic.id)
       && !(relic.id === "boots" && this.stats.flying) && !(relic.id === "petri" && this.stats.split)
       && !(relic.id === "photo" && this.stats.familiars >= 2));
     return pool.length ? this.rng.pick(pool).id : "heart";
+  }
+
+  /** Three or four items on pedestals, from the floor's seeded RNG. */
+  private stockShop(): ShopItem[] {
+    const kinds = this.rng.shuffle<ShopKind>(["half", "heart", "key", "container", "relic"]).slice(0, 3 + this.rng.int(2));
+    const items: ShopItem[] = kinds.map(kind => ({ x: 0, y: CY - 10, kind, relic: null, price: kind === "relic" ? 7 + this.rng.int(4) : SHOP_PRICES[kind], sold: false }));
+    for (const item of items) if (item.kind === "relic") {
+      const relic = this.rollRelic();
+      if (relic === "heart") { item.kind = "container"; item.price = SHOP_PRICES.container; } else item.relic = relic;
+    }
+    items.forEach((item, i) => { item.x = CX + (i - (items.length - 1) / 2) * 140; });
+    return items;
+  }
+
+  /**
+   * Crossing a Room of Pain door (in or out) costs half a heart. It is a toll, not a hit: no
+   * invulnerability, no knockback, and it never kills (at half a heart it leaves you at half a heart).
+   */
+  painCost() {
+    const p = this.player;
+    this.painCrossings++;
+    const paid = p.hp > 1;
+    p.hp = Math.max(1, p.hp - 1);
+    this.texts.push({ x: p.x, y: p.y - 44, text: paid ? "-½ ♥" : "spared", life: 1.1, color: "#ff3b4e" });
+    this.sfx("hurt");
   }
 
   private enterRoom(room: Room, from: Dir | null) {
@@ -222,6 +283,10 @@ export class Game {
     }
     const state = this.state;
     if (!room.cleared && state.enemies.length === 0) this.populate(room, from);
+    if (from && room.kind === "shop" && state.shop.some(item => !item.sold))
+      this.emit({ type: "toast", title: "Shop", text: "Walk over an item to buy it with coins." });
+    if (from && room.kind === "pain")
+      this.emit({ type: "toast", title: "Room of Pain", text: room.pain === "fight" && !room.cleared ? "Survive the fight to claim a relic." : "A relic and a chest, paid in blood." });
   }
 
   private freeTiles(minDistance: number, flying = false) {
@@ -249,7 +314,8 @@ export class Game {
     const regulars = this.cast.regulars;
     // From floor 2 on, one more Friend per normal fight room (the spawn loop stops when free tiles run out).
     let budget = 2 + Math.min(this.depth, 3) + this.rng.int(2) + (room.distance > 3 ? 1 : 0) + (this.depth >= 1 ? 1 : 0);
-    let spawned = 0;
+    let spawned = 0, eliteBoost = 0;
+    if (room.kind === "pain") { budget += 2; eliteBoost = 0.35; }
     const tiles = this.rng.shuffle(this.freeTiles(210));
     if (room.special && tiles.length) {
       // The elite: a real Friend of this floor's family, placed as far from the door as the arena allows.
@@ -267,17 +333,17 @@ export class Game {
       const family = sprites.familyId as FamilyId;
       if (family === 2) {
         // Kin arrive as a little family of three.
-        for (let i = 0; i < 3; i++) state.enemies.push(this.makeEnemy(sprites, at.x + (i - 1) * 22, at.y + (i % 2) * 14, false));
+        for (let i = 0; i < 3; i++) state.enemies.push(this.makeEnemy(sprites, at.x + (i - 1) * 22, at.y + (i % 2) * 14, false, false, eliteBoost));
         spawned += 2;
-      } else state.enemies.push(this.makeEnemy(sprites, at.x, at.y, false));
+      } else state.enemies.push(this.makeEnemy(sprites, at.x, at.y, false, false, eliteBoost));
       spawned++;
     }
   }
 
-  makeEnemy(sprites: GenerationSprites, x: number, y: number, boss: boolean, minion = false): Enemy {
+  makeEnemy(sprites: GenerationSprites, x: number, y: number, boss: boolean, minion = false, eliteBoost = 0): Enemy {
     const family = sprites.familyId as FamilyId;
     const kind: EnemyKind = boss ? "boss" : KIND_BY_FAMILY[family];
-    const elite = !boss && !minion && this.rng.chance(0.08 + this.depth * 0.04);
+    const elite = !boss && !minion && this.rng.chance(0.08 + this.depth * 0.04 + eliteBoost);
     const hpMul = (1 + this.depth * 0.32) * (elite ? 1.6 : 1);
     const hp = boss ? (110 + this.depth * 75) * ELITE_BOSS_HP : BASE_HP[kind] * hpMul * ENEMY_HP;
     const scale = boss ? 6 : kind === "brute" ? 4 : kind === "kin" ? 2 : 3;
@@ -313,7 +379,11 @@ export class Game {
     return tile === 1 || tile === 2;
   }
 
-  private doorOpen(d: Dir) { return Boolean(this.room.doors[d]) && this.room.cleared; }
+  /** The room through door `d` of the current room, if any. */
+  neighbour(d: Dir, room = this.room) { return room.doors[d] ? this.floor.rooms.get(key(room.gx + STEP[d][0], room.gy + STEP[d][1])) ?? null : null; }
+
+  /** A door opens once its room is clear, unless the room beyond still needs a key. */
+  doorOpen(d: Dir) { return Boolean(this.room.doors[d]) && this.room.cleared && !this.neighbour(d)?.locked; }
 
   /** Circle vs room interior, tiles and (for the player) open door corridors. */
   walkable(x: number, y: number, r: number, flying: boolean, doors: boolean) {
@@ -438,14 +508,17 @@ export class Game {
       if (this.fade >= 1 || this.reducedMotion) {
         const { room, from } = this.pendingRoom;
         this.pendingRoom = null;
+        const leavingPain = this.room.kind === "pain";
         this.enterRoom(room, from);
         this.sfx("door");
+        if (room.kind === "pain" || leavingPain) this.painCost();
       }
       return;
     }
     if (this.fade > 0) this.fade = Math.max(0, this.fade - dt / 0.12);
     this.bossIntro = Math.max(0, this.bossIntro - dt);
     this.shake = Math.max(0, this.shake - dt);
+    this.hintCd = Math.max(0, this.hintCd - dt);
     this.updatePlayer(dt, input);
     this.updateFamiliars(dt);
     this.updateEnemies(dt);
@@ -885,7 +958,12 @@ export class Game {
       if (hurt) state.pickups.push({ ...spot, kind: "heart", t: 0 });
       else for (const dx of [-22, 0, 22]) state.pickups.push({ ...this.openSpot({ x: spot.x + dx, y: spot.y }), kind: "spark", t: 0 });
       this.emit({ type: "toast", title: "Elite defeated", text: hurt ? "It left a heart." : "It left a bundle of sparks." });
+      if (this.rng.chance(LOOT.eliteChest)) this.dropChest({ x: spot.x, y: spot.y + 34 });
       return;
+    }
+    if (!e.minion && !e.child && this.floorKillChests < LOOT.killChestsPerFloor && this.rng.chance(LOOT.killChest)) {
+      this.floorKillChests++;
+      this.dropChest(e);
     }
     const roll = this.rng.next(), spot = this.openSpot(e);
     if (roll < 0.06) state.pickups.push({ ...spot, kind: "half", t: 0 });
@@ -1046,23 +1124,96 @@ export class Game {
     }
   }
 
+  private dropChest(at: Vec) {
+    this.state.pickups.push({ ...this.openSpot(at), kind: this.rng.chance(LOOT.lockedShare) ? "lockedChest" : "chest", t: 0 });
+  }
+
+  /** Spill loot around a point (drops land on open floor). */
+  private spill(at: Vec, kinds: PickupKind[]) {
+    kinds.forEach((kind, i) => {
+      const a = (i / Math.max(1, kinds.length)) * Math.PI * 2 + 0.4, r = 34 + (i % 2) * 12;
+      this.state.pickups.push({ ...this.openSpot({ x: at.x + Math.cos(a) * r, y: at.y + Math.sin(a) * r * 0.7 }), kind, t: 0 });
+      if (kind === "key") this.floorKeyDrops++;
+    });
+  }
+
+  private hint(text: string, at: Vec) {
+    if (this.hintCd > 0) return;
+    this.hintCd = 1.2;
+    this.texts.push({ x: at.x, y: at.y - 40, text, life: 1.1, color: "#ffffff" });
+  }
+
+  /** Open chest: 1–4 coins, sometimes a half heart or a key. Locked chest (costs a key): 3–7 coins and maybe a heart or a relic. */
+  private openChest(item: Pickup) {
+    const loot: PickupKind[] = [];
+    this.chestsOpened++;
+    if (item.kind === "chest") {
+      for (let i = 1 + this.rng.int(4); i > 0; i--) loot.push("coin");
+      const extra = this.rng.next();
+      if (extra < 0.25) loot.push("half"); else if (extra < 0.4) loot.push("key");
+      this.sfx("pickup");
+    } else {
+      for (let i = 3 + this.rng.int(5); i > 0; i--) loot.push("coin");
+      const extra = this.rng.next();
+      if (extra < 0.3) {
+        const relic = this.rollRelic();
+        if (relic === "heart") loot.push("heart"); else this.takeRelic(relic);
+      } else if (extra < 0.65) loot.push("heart");
+      this.sfx("unlock");
+    }
+    this.burst(item.x, item.y - 8, item.kind === "chest" ? "#c98a4b" : "#ffd23f", 14);
+    this.spill(item, loot);
+  }
+
   private updatePickups(dt: number) {
     const p = this.player, state = this.state, s = this.stats;
-    state.pickups = state.pickups.filter(item => {
+    const before = state.pickups;
+    state.pickups = [];
+    const kept = before.filter(item => {
       item.t += dt;
-      if (item.t < 0.3 || dist(item, p) > p.r + 14) return true;
+      if (item.t < 0.3 || dist(item, p) > p.r + (item.kind === "chest" || item.kind === "lockedChest" ? 20 : 14)) return true;
       if ((item.kind === "heart" || item.kind === "half") && p.hp >= s.maxHp) return true;
+      if (item.kind === "lockedChest" && this.keys <= 0) { this.hint("needs a key", item); return true; }
+      if (item.kind === "lockedChest") { this.keys--; this.openChest(item); return false; }
+      if (item.kind === "chest") { this.openChest(item); return false; }
+      let text = "+heart", color = "#ff6b6b";
       if (item.kind === "heart") p.hp = Math.min(s.maxHp, p.hp + 2);
       else if (item.kind === "half") p.hp = Math.min(s.maxHp, p.hp + 1);
-      else this.sparks++;
-      this.texts.push({ x: item.x, y: item.y - 20, text: item.kind === "spark" ? "+1 spark" : "+heart", life: 0.8, color: item.kind === "spark" ? "#ccff00" : "#ff6b6b" });
-      this.sfx("pickup");
+      else if (item.kind === "coin") { this.coins++; this.coinsCollected++; text = "+1 coin"; color = "#ffd23f"; }
+      else if (item.kind === "key") {
+        this.keys++; this.keysCollected++; text = "+key"; color = "#ffd23f";
+        if (!this.keyTipShown) { this.keyTipShown = true; this.emit({ type: "toast", title: "Key", text: "Opens a locked door or a locked chest." }); }
+      } else { this.sparks++; text = "+1 spark"; color = "#ccff00"; }
+      this.texts.push({ x: item.x, y: item.y - 20, text, life: 0.8, color });
+      this.sfx(item.kind === "coin" ? "coin" : "pickup");
       return false;
     });
+    // Chests spill new pickups into state.pickups while the old list is filtered.
+    state.pickups = kept.concat(state.pickups);
+    for (const item of state.shop) {
+      if (item.sold || dist(item, p) > p.r + 22) continue;
+      this.buy(item);
+    }
     const pedestal = state.pedestal;
     if (pedestal && !pedestal.taken && dist(pedestal, p) < p.r + 22) {
       pedestal.taken = true;
       this.takeRelic(pedestal.relic);
+    }
+  }
+
+  /** Walking over a shop item buys it when you can afford it (and would benefit from a heart). */
+  private buy(item: ShopItem) {
+    const p = this.player, s = this.stats;
+    if (this.coins < item.price) { this.hint(`need ${item.price} coins`, item); return; }
+    if ((item.kind === "half" || item.kind === "heart") && p.hp >= s.maxHp) { this.hint("health is full", item); return; }
+    this.coins -= item.price; item.sold = true; this.bought++;
+    this.texts.push({ x: item.x, y: item.y - 50, text: `-${item.price} coins`, life: 1, color: "#ffd23f" });
+    switch (item.kind) {
+      case "half": p.hp = Math.min(s.maxHp, p.hp + 1); this.sfx("pickup"); break;
+      case "heart": p.hp = Math.min(s.maxHp, p.hp + 2); this.sfx("pickup"); break;
+      case "key": this.keys++; this.keysCollected++; this.sfx("pickup"); break;
+      case "container": this.takeRelic("heart"); break;
+      case "relic": this.takeRelic(item.relic!); break;
     }
   }
 
@@ -1103,14 +1254,38 @@ export class Game {
     room.cleared = true;
     this.tears = this.tears.filter(tear => tear.friendly);
     this.sfx("door");
+    const spot = this.freeTiles(0).sort((a, b) => dist(a, { x: CX, y: CY }) - dist(b, { x: CX, y: CY }))[0] ?? { x: CX, y: CY };
     if (room.kind === "normal" && this.rng.chance(0.38)) {
-      const spot = this.freeTiles(0).sort((a, b) => dist(a, { x: CX, y: CY }) - dist(b, { x: CX, y: CY }))[0] ?? { x: CX, y: CY };
       state.pickups.push({ x: spot.x, y: spot.y, kind: this.rng.chance(CLEAR_HEART_SHARE) ? "heart" : "spark", t: 0 });
+    }
+    if (room.kind === "normal") {
+      // Keys: ~12% per cleared fight room, and from floor 2 on the first cleared fight room always drops
+      // one if the floor has not dropped a key yet, so a locked room is always reachable.
+      const extra: PickupKind[] = [];
+      if ((this.depth >= 1 && this.floorKeyDrops === 0) || this.rng.chance(LOOT.clearKey)) extra.push("key");
+      if (this.rng.chance(LOOT.clearCoin)) extra.push("coin");
+      if (extra.length) this.spill(spot, extra);
+    }
+    if (room.kind === "pain") {
+      // Tough Room of Pain: a guaranteed relic once the fight is won.
+      state.pedestal = { x: CX, y: CY, relic: this.rollRelic(), taken: false };
+      this.emit({ type: "toast", title: "The pain pays off", text: "A relic rises from the floor." });
     }
   }
 
   private checkExits() {
     const p = this.player, room = this.room;
+    // Touching a locked door with a key opens it for good (one key); without one, a hint.
+    if (room.cleared) for (const d of Object.keys(room.doors) as Dir[]) {
+      const next = this.neighbour(d);
+      if (!next?.locked || dist(p, { x: DOOR_POS[d][0], y: DOOR_POS[d][1] }) > p.r + 28) continue;
+      if (this.keys > 0) {
+        this.keys--; next.locked = false; this.unlocks++;
+        this.sfx("unlock");
+        this.texts.push({ x: p.x, y: p.y - 44, text: "unlocked", life: 1, color: "#ffd23f" });
+        this.burst(DOOR_POS[d][0], DOOR_POS[d][1], "#ffd23f", 12);
+      } else this.hint("needs a key", p);
+    }
     const exits: [Dir, boolean][] = [
       ["up", p.y < IN_Y - 14], ["down", p.y > IN_Y + IN_H + 14], ["left", p.x < IN_X - 14], ["right", p.x > IN_X + IN_W + 14],
     ];

@@ -4,7 +4,7 @@ import { build } from "esbuild";
 import { resolve } from "node:path";
 const out = resolve("games/binding-of-rarefriend/.artifacts/sim.mjs");
 await build({ entryPoints: ["games/binding-of-rarefriend/tests/sim.ts"], bundle: true, platform: "node", format: "esm", outfile: out, logLevel: "error" });
-const { run, SIGNATURES, signatureFor, generationBonus, ALL_LAYOUTS, layoutConnected, generateFloor, createRng } = await import(out);
+const { run, SIGNATURES, signatureFor, generationBonus, ALL_LAYOUTS, layoutConnected, generateFloor, createRng, painCheck } = await import(out);
 
 // Every room layout is 13×7 and fully connected with all four doors open.
 ALL_LAYOUTS.forEach((layout, i) => {
@@ -19,6 +19,49 @@ for (let s = 0; s < 300; s++) {
   for (const room of floor.rooms.values()) if (room.kind === "normal") { normals++; if (room.tiles.flat().every(t => t === 0)) fallback++; }
 }
 console.log(`layouts: ${ALL_LAYOUTS.length} connected; 300 floors each have an elite room; empty-room fallbacks ${fallback}/${normals}`);
+
+// Shops, Rooms of Pain and locks: every floor has one shop and one Room of Pain, every room is connected,
+// the boss is reachable without keys (and without the Room of Pain), and locks appear from floor 2 on only.
+const STEPS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+const reach = (floor, pass) => {
+  const seen = new Set([floor.start]), q = [floor.start];
+  while (q.length) {
+    const r = q.shift();
+    for (const d of Object.keys(r.doors)) {
+      const n = floor.rooms.get(`${r.gx + STEPS[d][0]},${r.gy + STEPS[d][1]}`);
+      assert(n && n.doors[{ up: "down", down: "up", left: "right", right: "left" }[d]], "doors must be two-way");
+      if (!seen.has(n) && pass(n)) { seen.add(n); q.push(n); }
+    }
+  }
+  return seen;
+};
+const painKinds = { fight: 0, reward: 0 };
+for (let s = 0; s < 400; s++) {
+  const depth = s % 4, floor = generateFloor(createRng(s), depth, s % 9);
+  const rooms = [...floor.rooms.values()];
+  const count = kind => rooms.filter(r => r.kind === kind).length;
+  assert(count("shop") === 1 && count("pain") === 1 && count("treasure") === 1 && count("boss") === 1, `floor ${s}: one shop, pain, treasure and boss room`);
+  assert.equal(reach(floor, () => true).size, rooms.length, `floor ${s}: every room connected`);
+  const free = reach(floor, r => !r.locked && r.kind !== "pain" && r.kind !== "shop" && r.kind !== "treasure");
+  assert(free.has(floor.boss), `floor ${s}: boss reachable without keys or pain`);
+  for (const r of rooms) {
+    if (["shop", "pain", "treasure", "boss"].includes(r.kind)) assert.equal(Object.keys(r.doors).length, 1, `floor ${s}: ${r.kind} is a dead end`);
+    assert.equal(r.locked, depth >= 1 && (r.kind === "shop" || r.kind === "treasure"), `floor ${s}: lock rule for ${r.kind}`);
+  }
+  // Special rooms hang off fight rooms (or the start), never off each other or the boss.
+  for (const r of [floor.shop, floor.painRoom]) {
+    const d = Object.keys(r.doors)[0], parent = floor.rooms.get(`${r.gx + STEPS[d][0]},${r.gy + STEPS[d][1]}`);
+    assert(parent.kind === "normal" || parent.kind === "start", `floor ${s}: ${r.kind} parent is ${parent.kind}`);
+  }
+  painKinds[floor.painRoom.pain]++;
+  const again = generateFloor(createRng(s), depth, s % 9);
+  assert.equal(JSON.stringify([...again.rooms.values()].map(r => [r.gx, r.gy, r.kind, r.pain, r.tiles])), JSON.stringify(rooms.map(r => [r.gx, r.gy, r.kind, r.pain, r.tiles])), `floor ${s}: deterministic per seed`);
+}
+console.log(`400 floors: one shop + one Room of Pain each (${painKinds.fight} fight, ${painKinds.reward} reward), all rooms connected, boss reachable without keys, locks only from floor 2, deterministic`);
+const tolls = painCheck();
+assert.deepEqual(tolls.results.map(r => r.hp), [5, 4, 1, 1, 1], "pain tolls: half a heart each way, never below half a heart");
+assert(tolls.results.every(r => r.status === "playing" && r.invuln === 0), "pain tolls never kill and are not hits");
+console.log("pain tolls:", JSON.stringify(tolls.results.map(r => `${r.room}:${r.hp}`)));
 
 // Signatures are deterministic per Friend and spread evenly over token IDs and seeds.
 const counts = Object.fromEntries(SIGNATURES.map(s => [s.id, 0]));
@@ -50,14 +93,22 @@ for (let family = 0; family < 9; family++) for (const god of [true, false]) {
     const fams = [family, others[(s * 3) % 8], others[(s * 3 + 1) % 8], others[(s * 3 + 2) % 8]];
     const r = run(seed, family, fams, god, undefined, options);
     (god ? results.god : results.normal).push(r);
-    if (r.log.some(l => l.startsWith("STUCK")) || (god && r.status !== "won")) { problems++; console.log("PROBLEM", { family, god, seed, fams, options, status: r.status, depth: r.depth, t: r.time.toFixed(0), last: r.log.slice(-3) }); }
+    if (r.log.some(l => /^(STUCK|PAINKILL|KEYFAIL)/.test(l)) || (god && r.status !== "won")) { problems++; console.log("PROBLEM", { family, god, seed, fams, options, status: r.status, depth: r.depth, t: r.time.toFixed(0), last: r.log.slice(-3) }); }
   }
 }
 const summarize = list => ({ runs: list.length, won: list.filter(r => r.status === "won").length, dead: list.filter(r => r.status === "dead").length,
   avgDepthReached: (list.reduce((a, r) => a + r.depth + 1, 0) / list.length).toFixed(2), avgTime: (list.reduce((a, r) => a + r.time, 0) / list.length).toFixed(0),
   avgKills: (list.reduce((a, r) => a + r.kills, 0) / list.length).toFixed(1) });
+const loot = list => {
+  const sum = f => list.reduce((a, r) => a + f(r), 0), floors = sum(r => r.depth + 1);
+  return { perFloor: { coins: (sum(r => r.coins) / floors).toFixed(1), keys: (sum(r => r.keys) / floors).toFixed(2), chests: (sum(r => r.chests) / floors).toFixed(2) },
+    unlocks: sum(r => r.unlocks), bought: sum(r => r.bought), shopVisits: sum(r => r.visits.shop), painVisits: sum(r => r.visits.pain), painTolls: sum(r => r.pain),
+    treasureVisits: sum(r => r.visits.treasure), lockedTreasureVisits: sum(r => r.visits.lockedTreasure) };
+};
 console.log("invulnerable bot:", JSON.stringify(summarize(results.god)));
 console.log("normal bot:", JSON.stringify(summarize(results.normal)));
+console.log("invulnerable bot loot:", JSON.stringify(loot(results.god)));
+console.log("normal bot loot:", JSON.stringify(loot(results.normal)));
 const where = {}; for (const r of results.normal) if (r.status === "dead") where[r.endRoom] = (where[r.endRoom] ?? 0) + 1;
 console.log("normal bot deaths by room:", JSON.stringify(where));
 

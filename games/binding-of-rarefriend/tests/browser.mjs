@@ -114,6 +114,55 @@ try {
     await game.locator(".bor-vs").waitFor({ state: "detached", timeout: 3000 });
     await page.waitForTimeout(400);
     await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-boss.png`) });
+    // Floor 1 shop (open), stocked with 3–4 priced items; the HUD shows coins and keys.
+    await withGame(game => {
+      game.player.invuln = 99; game.coins = 9; game.keys = 1;
+      game.pendingRoom = { room: game.floor.shop, from: Object.keys(game.floor.shop.doors)[0] };
+    });
+    await page.waitForTimeout(900);
+    const shop = await withGame(game => ({ kind: game.room.kind, locked: game.room.locked, items: game.state.shop.length }));
+    assert(shop.kind === "shop" && !shop.locked && shop.items >= 3 && shop.items <= 4, `${view.name}: shop ${JSON.stringify(shop)}`);
+    await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-shop.png`) });
+    // Floor 2: the treasure room's door is locked (padlock), next to an open and a locked chest.
+    const lockedInfo = await withGame(game => {
+      game.enterFloor(1); game.drainEvents();
+      const opposite = { up: "down", down: "up", left: "right", right: "left" };
+      const parentOf = room => { const d = Object.keys(room.doors)[0]; return [game.neighbour(d, room), opposite[d]]; };
+      const [parent, toTreasure] = parentOf(game.floor.treasure);
+      parent.cleared = true; game.keys = 0; game.coins = 3; game.player.invuln = 99;
+      const state = game.roomStates.get(parent);
+      state.enemies = [];
+      state.pickups.push({ x: 380, y: 400, kind: "chest", t: 0 }, { x: 580, y: 400, kind: "lockedChest", t: 0 });
+      const from = Object.keys(parent.doors).find(d => d !== toTreasure);
+      game.pendingRoom = { room: parent, from };
+      return { locked: game.floor.treasure.locked, shopLocked: game.floor.shop.locked, painLocked: game.floor.painRoom.locked };
+    });
+    assert.deepEqual(lockedInfo, { locked: true, shopLocked: true, painLocked: false }, `${view.name}: floor-2 locks`);
+    await page.waitForTimeout(900);
+    const doorOpen = await withGame(game => { const d = Object.keys(game.room.doors).find(d => game.neighbour(d) === game.floor.treasure); return game.doorOpen(d); });
+    assert.equal(doorOpen, false, `${view.name}: a locked door stays shut without a key`);
+    await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-locked.png`) });
+    // The Room of Pain door, seen from its neighbouring room.
+    await withGame(game => {
+      const pain = game.floor.painRoom, d = Object.keys(pain.doors)[0], parent = game.neighbour(d, pain);
+      const opposite = { up: "down", down: "up", left: "right", right: "left" };
+      parent.cleared = true; game.roomStates.get(parent).enemies = []; game.player.invuln = 99;
+      game.pendingRoom = { room: parent, from: Object.keys(parent.doors).find(x => x !== opposite[d]) };
+    });
+    await page.waitForTimeout(900);
+    await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-pain-door.png`) });
+    // Inside the Room of Pain: entering costs half a heart (a toll, not a hit).
+    const hpBefore = await withGame(game => {
+      const pain = game.floor.painRoom, hp = game.player.hp;
+      game.player.invuln = 0;
+      game.pendingRoom = { room: pain, from: Object.keys(pain.doors)[0] };
+      return hp;
+    });
+    await page.waitForTimeout(700);
+    const inPain = await withGame(game => ({ kind: game.room.kind, hp: game.player.hp }));
+    assert.deepEqual(inPain, { kind: "pain", hp: Math.max(1, hpBefore - 1) }, `${view.name}: pain toll`);
+    await withGame(game => { game.player.invuln = 99; });
+    await page.locator(".rf-game-frame").screenshot({ path: join(outdir, `${view.name}-pain-room.png`) });
     // End screens.
     await withGame((game, { won }) => {
       for (const floor of game.roster.floors) for (const sprites of [...floor.regulars, floor.boss])
